@@ -32,6 +32,7 @@ def test_hosted_configuration_routes_each_secret_only_to_its_agent():
     assert codex["extra_allowed_hosts"] == ["openrouter.ai"]
     assert adapter["secrets"] == ["BRIDGE_TOKEN"]
     assert adapter["model_name"] == REMOTE_MODEL
+    assert adapter["env"]["REMOTE_EVAL_MODEL"] == REMOTE_MODEL
     assert adapter["source"]["ref"] == RELEASE
     assert adapter["extra_allowed_hosts"] == ["staging.example.org"]
 

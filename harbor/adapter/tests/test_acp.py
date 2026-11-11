@@ -106,7 +106,7 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
             "STAGING_URL": f"http://127.0.0.1:{server.server_port}",
             "BRIDGE_TOKEN": "trial-bridge-token",
             "AGENT_RELEASE": RELEASE,
-            "HARBOR_ACP_REQUESTED_MODEL": MODEL_NAME,
+            "REMOTE_EVAL_MODEL": MODEL_NAME,
             "REMOTE_EVAL_METADATA_PATH": str(metadata),
         }.items():
             monkeypatch.setenv(key, value)

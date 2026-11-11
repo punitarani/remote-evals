@@ -130,6 +130,9 @@ def job_config(
     if target in ("both", "remote"):
         if url is None:
             raise LaunchError("endpoint: STAGING_URL is required for the remote agent")
+        adapter_env = {"STAGING_URL": url, "AGENT_RELEASE": release}
+        if remote_model is not None:
+            adapter_env["REMOTE_EVAL_MODEL"] = remote_model
         agents.append(
             {
                 "name": "acp",
@@ -141,7 +144,7 @@ def job_config(
                     "path": "harbor/adapter",
                     "manifest": "harbor-agent.json",
                 },
-                "env": {"STAGING_URL": url, "AGENT_RELEASE": release},
+                "env": adapter_env,
                 "extra_allowed_hosts": [urlsplit(url).hostname],
                 "secrets": ["BRIDGE_TOKEN"],
             }

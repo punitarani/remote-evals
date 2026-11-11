@@ -70,7 +70,7 @@ class Settings:
             token,
             release,
             metadata_path,
-            os.getenv("HARBOR_ACP_REQUESTED_MODEL") or None,
+            os.getenv("REMOTE_EVAL_MODEL") or None,
         )
 
 
