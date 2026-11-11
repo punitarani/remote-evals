@@ -173,19 +173,19 @@ times from the two remote traces to check concurrent execution.
 
 ## Verified hosted run
 
-The [full Hosted Harbor job](https://hub.harborframework.com/jobs/b217d560-3b43-44a1-930f-bbe03482cdcf)
-used [release `73fe939`](https://github.com/punitarani/remote-evals/commit/73fe939bf1302061cf1202558d6de5b0a431dfe4)
+The [full Hosted Harbor job](https://hub.harborframework.com/jobs/59eccc7a-9724-44a8-8e13-ef0160a3f4bf)
+used [release `2c64dcb`](https://github.com/punitarani/remote-evals/commit/2c64dcb649874c21b961c301d538a75d31f74944)
 and `deepseek/deepseek-v4.1-flash-1017` through OpenRouter for both agents.
 Each case used the same task checksum for Codex and the staging agent.
 
 | Case | Fixture SHA-256 prefix | Agent | Harbor trial ID | Reward |
 | --- | --- | --- | --- | --- |
-| Cheapest nonstop | `c2f8d9fc2f13` | Codex | `cae3df6b-c884-43b2-a453-2b6ef8a9728f` | 1.0 |
-| Cheapest nonstop | `c2f8d9fc2f13` | Staging | `75293236-b893-4f9f-a8cb-a17c4aa796de` | 1.0 |
-| No match | `6d39ea0cfb2f` | Codex | `5716ae75-c27f-44d5-b6f4-b51fd092cd8e` | 1.0 |
-| No match | `6d39ea0cfb2f` | Staging | `4fa1f429-b237-4b33-b17c-ef33bf9f7356` | 1.0 |
+| Cheapest nonstop | `c2f8d9fc2f13` | Codex | `04cc4487-1db0-44d4-b9b8-72d241294520` | 1.0 |
+| Cheapest nonstop | `c2f8d9fc2f13` | Staging | `eed2483b-9870-4ca3-8b80-0eb064bf6a1a` | 1.0 |
+| No match | `6d39ea0cfb2f` | Codex | `bbdc8fee-78cf-4e2f-9f4a-4ba55147a94f` | 1.0 |
+| No match | `6d39ea0cfb2f` | Staging | `1d10bd66-1bee-4ca1-9f7f-09f33a3f60b2` | 1.0 |
 
-In the staging smoke trial, action `3` asked Fli to confirm nonstops on
+In the staging smoke trial, action `2` asked Fli to confirm nonstops on
 May 10. The adapter returned UA208 and UA202 at $199 each. The harness chose
 UA202 under the flight-number tie-break, then used Bash to write this report.
 Harbor copied it into the separate verifier and awarded 1.0.
@@ -202,6 +202,6 @@ Harbor copied it into the separate verifier and awarded 1.0.
 }
 ```
 
-The two staging sessions overlapped for about 15 seconds. They used distinct
+The two staging sessions overlapped for about 2.4 seconds. They used distinct
 session IDs and separate trial workspaces. The second workspace produced
 `{"status":"no_match"}`.
