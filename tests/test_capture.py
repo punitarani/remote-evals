@@ -1,11 +1,13 @@
 import importlib
 from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from fli.models import Airline, Airport
 from fli.search.exceptions import SearchTimeoutError
-from test_task import TASK_SOURCE
+
+TASK_SOURCE = Path(__file__).resolve().parents[1] / "harbor" / "task"
 
 
 @pytest.fixture

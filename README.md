@@ -1,40 +1,64 @@
 # Building Remote Evals with Harbor
 
-Take a flight agent that already calls Bash and Fli, then let Hosted Harbor
-supply the workspace, flight inventory, and grader for a single run. The
-example staging service runs on your machine and is reachable over HTTPS
-through ngrok.
+Capture the flight inventory once, then use the same agent workflow with either
+a live Fli server or an emulated one. Hosted Harbor gives each trial its own
+workspace and grades the report in a separate verifier.
 
-```mermaid
-flowchart LR
-    CI["CLI or GitHub Actions"] --> Harbor["Hosted Harbor trial"]
-    Harbor --> ACP["ACP adapter"]
-    Harbor --> Codex["Native Codex control"]
-    ACP <-->|"HTTPS tool actions and results"| Agent["Staging flight agent via ngrok"]
-    ACP --> Tools["Trial Bash and fixture-backed Fli"]
-    Codex --> Tools
-    Tools --> Report["/workspace/report.json"]
-    Report --> Verifier["Separate Harbor verifier"]
-```
-
-## 1. Start with the direct-call agent
-
-The [starting commit](https://github.com/punitarani/remote-evals/commit/ab72dd7)
-runs a model loop, calls live Fli handlers, and invokes Bash in the workspace
-supplied at launch. To try live Fli, supply `OPENROUTER_API_KEY` in `.env` and
-run the CLI in a disposable workspace.
+## Capture a flight snapshot
 
 ```sh
-uv sync --locked --group fixture
-uv run --locked --env-file .env python -m agent --workspace "$(mktemp -d)" \
-  "Use Fli to find a one-way nonstop from SFO to JFK next month and summarize the fares."
+uv run --locked python harbor/task/capture_fli.py \
+  --origin SFO --destination JFK --output jobs/fli-snapshot.json
 ```
 
-## 2. Move tool execution behind one interface
+The command defaults to three consecutive dates starting 21 days ahead in UTC.
+Use `--start-date YYYY-MM-DD` and `--days 2` through `--days 7` to choose a
+different window. It asks the pinned Fli backend for every returned one-way
+economy nonstop for one adult in USD, then checks each day's lowest fare against
+Fli's date search. It writes the snapshot and prints its SHA-256 only after
+every date passes. Each file records the capture time, query scope, Fli version,
+and offer counts. [Fli MCP reference](https://punitarani.github.io/fli/guides/mcp/)
 
-The [harness](agent/harness.py) still owns the system prompt, model loop, tool
-schemas, and tool budget. The application chooses the executor when it creates
-a run. The change at the point of execution is the migration to copy.
+The example uses the checked-in [SFO–JFK snapshot](harbor/task/fixtures/sfo-jfk.json).
+To refresh it, review the capture and replace that file in the release commit.
+The emulated server and verifier both receive the same snapshot bytes. The
+snapshot covers the requested dates and the offers Fli returned within the
+query scope.
+
+## Run the two Harbor examples
+
+Start [staging and ngrok](#connect-staging) and set the credentials described there.
+
+```sh
+uv run --locked --env-file .env python -m scripts.run_eval --suite smoke
+uv run --locked --env-file .env python -m scripts.run_eval --suite live-smoke --target remote
+```
+
+| Suite | Fli tools | What the verifier checks |
+| --- | --- | --- |
+| `smoke` | Emulated from the checked-in snapshot | Exact cheapest date, nonstop flight, and fare |
+| `live-smoke` | Live Fli MCP, with a fresh date window | A valid found itinerary within the requested route and date range |
+
+The emulated server reuses Fli's MCP handlers and replaces their network
+searches with a read of the captured inventory. It freezes the Fli clock at
+capture time so the same dates remain valid on later runs. Date prices and
+flight rows come from the same data, and requests outside the captured route,
+dates, or nonstop scope return an error.
+A pinned snapshot gives each run the same initial inventory, supported tool
+responses, and reward for a given report. A model may still choose a different
+sequence of actions.
+
+The live trial allows the Fli upstream host and checks the report contract
+without pinning a fare. Inspect its trajectory for successful
+`search_dates` and `search_flights` responses. The separate verifier stays
+offline in both suites. [Harbor network policies](https://docs.harborframework.com/tasks/network-policies) · [Harbor separate verifier](https://docs.harborframework.com/tasks/separate-verifier)
+
+## Move tool execution behind one interface
+
+The [starting commit](https://github.com/punitarani/remote-evals/commit/ab72dd7)
+calls live Fli and invokes Bash directly. The [harness](agent/harness.py) still
+owns the system prompt, model loop, tool schemas, and tool budget. The application
+now chooses the executor when it creates a run.
 
 ```diff
 -async def run_agent(prompt, complete, workspace):
@@ -44,62 +68,36 @@ a run. The change at the point of execution is the migration to copy.
 +    result = await executor.execute(name, arguments)
 ```
 
-The [CLI](agent/__main__.py) injects `DirectToolExecutor(workspace)`. The
-[staging service](agent/service.py) injects a trial executor that returns the
-next action to the [ACP adapter](harbor/adapter/). The adapter executes Bash
-through Harbor's terminal API or invokes Fli over MCP, then posts the result
-back. Each trial has its own session. Repeating a start request or an action
-result returns the same response, and the adapter reuses the result of a
-completed action.
+The [local CLI](agent/__main__.py) uses `DirectToolExecutor` for live Fli and Bash.
+The [staging service](agent/service.py) sends actions to the
+[ACP adapter](harbor/adapter/), which invokes Fli in the trial over MCP and
+executes Bash through Harbor's terminal API. Each trial has its own workspace.
+Repeating an action result returns the same response, and the adapter reuses
+the result of a completed action.
 
-## 3. Build and check the Harbor task
-
-```sh
-uv run --locked --group fixture pytest -q
-uv run --locked ruff check .
-uv run --locked ruff format --check .
-uv lock --check
-uv --directory harbor/adapter lock --check
-uv --directory harbor/adapter run --locked pytest -q
-
-task_dir=$(mktemp -d)
-uv run --locked python harbor/task/package.py "$task_dir" --suite full
-uv run --locked harbor lint "$task_dir/cheapest-nonstop"
-uv run --locked harbor lint "$task_dir/no-match"
+```mermaid
+flowchart LR
+    Harbor["Hosted Harbor trial"] --> ACP["ACP adapter"]
+    Harbor --> Codex["Native Codex control"]
+    ACP <-->|"HTTPS actions and results"| Agent["Staging flight agent via ngrok"]
+    ACP --> Tools["Trial Bash and live or emulated Fli"]
+    Codex --> Tools
+    Tools --> Report["/workspace/report.json"]
+    Report --> Verifier["Separate verifier"]
 ```
 
-The smoke case has a cheaper connection and tied nonstop fares. The second
-case has no eligible flight. Both use the pinned Fli handlers with synthetic
-inventory and a fixed clock. Harbor copies `/workspace/report.json` to a fresh
-verifier container, where [the grader](harbor/task/verify.py) checks the exact
-JSON contract and writes a binary reward. The model sees the same workspace,
-Fli tools, and report contract in both eval targets. Codex also has its native
-workspace capabilities. [Harbor separate verifier](https://docs.harborframework.com/tasks/separate-verifier)
+## Connect staging
 
-## 4. Run the control and connect staging
+Use Python 3.14 with uv for the service, capture script, and task image. The
+GitHub-sourced ACP adapter has its own Python 3.12 lockfile for Hosted Harbor.
+For a fork, set `REPOSITORY` in the [launcher](scripts/run_eval.py) and grant
+Harbor access if the fork is private. [Harbor custom agents](https://docs.harborframework.com/hosted-harbor/custom-agents)
 
-Use Python 3.14 for the service, developer tooling, and task image. Harbor
-currently requires Python 3.12 for a GitHub-sourced ACP adapter, so the adapter
-has its own manifest and lockfile. The task image also pins the ACP SDK used by
-Harbor's runner bootstrap. If you run from your own fork, set `REPOSITORY` in
-[the launcher](scripts/run_eval.py). For a private fork, grant the Harbor
-Connect GitHub App access to that repository and share it with the Harbor
-organization that owns the job. [Harbor custom agents](https://docs.harborframework.com/hosted-harbor/custom-agents)
-
-Copy `.env.example` to `.env` if you need a template. Set `OPENROUTER_API_KEY`
-for staging, `CODEX_OPENROUTER_API_KEY` to a separate scoped key for Codex, and
-`BRIDGE_TOKEN` to a random value such as one generated by
-`uv run python -c 'import secrets; print(secrets.token_urlsafe(32))'`.
-Run `uv run --locked harbor auth login` locally or set `HARBOR_API_KEY` for CI.
-
-Run the native Codex control first.
-
-```sh
-uv run --locked --env-file .env python -m scripts.run_eval --target codex
-```
-
-From a clean checkout of the deployment commit, start staging in one terminal
-and ngrok in another. Keep both running through the last trial.
+Copy `.env.example` to `.env` if you need a template. Set
+`OPENROUTER_API_KEY` for staging, `CODEX_OPENROUTER_API_KEY` for Codex, and
+`BRIDGE_TOKEN` to a random value. Run `uv run --locked harbor auth login`
+locally or set `HARBOR_API_KEY`. From a clean checkout of the deployment
+commit, start staging in one terminal and ngrok in another.
 
 ```sh
 AGENT_RELEASE="$(git rev-parse HEAD)" \
@@ -110,126 +108,36 @@ AGENT_RELEASE="$(git rev-parse HEAD)" \
 ngrok http http://127.0.0.1:8000 --inspect=false
 ```
 
-Put the HTTPS forwarding origin in `STAGING_URL` in `.env`. The staging
-`/healthz` reports the deployed SHA, model, and mode. The launcher verifies the
-SHA and submits the deployed provider and model as Harbor's `model_name`.
-The adapter advertises that model over ACP, and staging checks it before
-starting inference. The launcher also runs a Harbor dry run against the
-pinned adapter source.
+Set `STAGING_URL` in `.env` to the HTTPS forwarding origin. Keep both
+processes running through the last trial. The launcher checks the deployed
+commit at `/healthz` and dry-runs the pinned adapter source. Both targets
+default to `deepseek/deepseek-v4.1-flash-1017` on OpenRouter. The OpenAI gateway
+option requires `CODEX_OPENAI_API_KEY` and an explicit
+`--codex-provider openai --codex-model` model selection.
 
-For a credential-free inference check, start the same service with
-`AGENT_MODE=scripted`. This probe uses Harbor's ACP runner to request one Bash
-action over the ngrok URL and confirms the resulting file in a disposable
-workspace. Export `STAGING_URL` and `BRIDGE_TOKEN` from your local configuration
-before running it.
-
-```sh
-repo=$(pwd)
-release=$(git rev-parse HEAD)
-uv --directory harbor/adapter sync --locked
-runner=$(uv run --locked python -c 'from importlib.util import find_spec; print(find_spec("harbor.agents.installed.acp_runner").origin)')
-work=$(mktemp -d)
-(
-  cd "$work"
-  AGENT_RELEASE="$release" REMOTE_EVAL_METADATA_PATH="$work/remote-eval.json" \
-    "$repo/harbor/adapter/.venv/bin/python" -P "$runner" \
-    --instruction "Run the scripted bridge check." --logs-dir "$work/agent" \
-    --launcher "$repo/harbor/adapter/.venv/bin/remote-eval-adapter"
-  cat bridge-probe.txt
-)
-```
-
-Restart staging in model mode for scoring. Launch both targets on the same
-pinned task packages.
-
-```sh
-uv run --locked --env-file .env python -m scripts.run_eval --dry-run
-uv run --locked --env-file .env python -m scripts.run_eval --suite full
-```
-
-Use `--target remote` to debug the deployed agent by itself. Both targets
-default to `deepseek/deepseek-v4.1-flash-1017` on OpenRouter. To use Harbor's
-OpenAI gateway for the control, set `CODEX_OPENAI_API_KEY` and pass
-`--codex-provider openai --codex-model` followed by an explicit `openai/` model ID.
-
-## 5. Run it after a deploy
+## CI and offline checks
 
 Configure the GitHub Actions `staging` environment with the `STAGING_URL`
 variable and the `HARBOR_API_KEY`, `BRIDGE_TOKEN`, and
-`CODEX_OPENROUTER_API_KEY` secrets. Point the URL at the running ngrok
-endpoint. A successful `staging` deployment status starts the two-trial smoke
-suite. From **Actions → Hosted Harbor eval → Run workflow**, enter the deployed
-commit SHA and select `full` to run the two cases on both targets.
+`CODEX_OPENROUTER_API_KEY` secrets. A successful staging deployment triggers
+the emulated suite. Use **Actions → Hosted Harbor eval → Run workflow** to
+select `live-smoke` manually. The launcher prints the job URL and downloads
+the traces, reports, and `eval-summary.json` under `jobs/`.
 
-The launcher writes a job link and per-trial status to the CI summary. It
-downloads the result and artifacts under `jobs/`, including
-`eval-summary.json`. A task score of zero means the report failed grading.
-Endpoint, inference, bridge, and verifier failures appear as separate
-outcomes. To debug, check the verifier tests, run Codex, run the scripted
-bridge probe, then inspect the model-backed run.
-
-While a remote trial runs, Harbor appends ACP updates to
-`/logs/agent/acp-events.jsonl` in the trial sandbox. The adapter checkpoints
-`/logs/artifacts/remote-eval.json` at session start and around each tool call.
-That file records the deployment, session, and action statuses. The ACP events
-carry the tool arguments and results.
-
-After the trial exits, Harbor converts those events to `agent/trajectory.json`
-for the Hub trajectory view. Open the trial to inspect named calls such as
-`search_flights` and `bash` alongside their results. The launcher checks the
-trajectory's session ID and matches its named tool calls and linked
-observations to the bridge action log. It reports trajectory problems
-alongside the original reward and trial outcome.
-Harbor 0.25's [live trajectory streaming](https://docs.harborframework.com/jobs/stream)
-covers Claude Code and Codex in the local viewer. Use the completed trial's
-trajectory for custom ACP agents in Hosted Harbor.
-
-Compare `remote-eval.json` with the downloaded `report.json` and verifier
-diagnostic. Use the start and finish times from two remote traces to check
-concurrent execution.
-
-The [trace smoke trial](https://hub.harborframework.com/jobs/339eebd9-3892-4537-9c1d-1d05891b4ef8/trials/a849faaf-1e3f-4b94-96fe-054337fccd41)
-on release `91e76e6` scored 1.0. Hub showed the running status during execution
-and displayed all four named calls and their results after completion. Expand
-the Bash step to see the report write and terminal exit status.
-
-The [model metadata run](https://hub.harborframework.com/jobs/9d2f6725-6049-4a41-a3d1-fb2c9cab45e9)
-on release `b337c03` scored 1.0 on both staging trials. Harbor recorded
-`openrouter` as the provider and `deepseek/deepseek-v4.1-flash-1017` as
-the model in both trial results. To see the provider and model grouping in
-Hub, select **Provider** alongside **Model** on the job overview.
-
-## Verified hosted run
-
-The [full Hosted Harbor job](https://hub.harborframework.com/jobs/59eccc7a-9724-44a8-8e13-ef0160a3f4bf)
-used [release `2c64dcb`](https://github.com/punitarani/remote-evals/commit/2c64dcb649874c21b961c301d538a75d31f74944)
-and `deepseek/deepseek-v4.1-flash-1017` through OpenRouter for both agents.
-Each case used the same task checksum for Codex and the staging agent.
-
-| Case | Fixture SHA-256 prefix | Agent | Harbor trial ID | Reward |
-| --- | --- | --- | --- | --- |
-| Cheapest nonstop | `c2f8d9fc2f13` | Codex | `04cc4487-1db0-44d4-b9b8-72d241294520` | 1.0 |
-| Cheapest nonstop | `c2f8d9fc2f13` | Staging | `eed2483b-9870-4ca3-8b80-0eb064bf6a1a` | 1.0 |
-| No match | `6d39ea0cfb2f` | Codex | `bbdc8fee-78cf-4e2f-9f4a-4ba55147a94f` | 1.0 |
-| No match | `6d39ea0cfb2f` | Staging | `1d10bd66-1bee-4ca1-9f7f-09f33a3f60b2` | 1.0 |
-
-In the staging smoke trial, action `2` asked Fli to confirm nonstops on
-May 10. The adapter returned UA208 and UA202 at $199 each. The harness chose
-UA202 under the flight-number tie-break, then used Bash to write this report.
-Harbor copied it into the separate verifier and awarded 1.0.
-
-```json
-{
-  "status": "found",
-  "origin": "SFO",
-  "destination": "JFK",
-  "departure_date": "2030-05-10",
-  "flight_number": "UA202",
-  "currency": "USD",
-  "price_cents": 19900
-}
+```sh
+uv run --locked --group fixture pytest -q
+uv --directory harbor/adapter run --locked pytest -q
+uv run --locked ruff check .
+uv run --locked ruff format --check .
 ```
 
-The two staging sessions overlapped for about 2.4 seconds. They used distinct
-session IDs and separate trial workspaces. The second workspace produced
-`{"status":"no_match"}`.
+## Verified Hosted Harbor runs
+
+Both jobs used [release `b60dcc5`](https://github.com/punitarani/remote-evals/commit/b60dcc5a96673fcba80b64eb374d472b8828242c).
+The emulated job used 62 offers from December 2–4, 2026. The snapshot SHA-256 was
+`65c04a06b021e822862ba94ee225fb21ce74dd5954a58962a212f2878ef36f92`.
+
+| Run | Result |
+| --- | --- |
+| [Emulated Fli](https://hub.harborframework.com/jobs/bf3f7bc8-a478-4601-93eb-b828128f7d2d) | Codex and the staging agent both wrote the same report for AA166 on December 3 at $174.00. Each earned 1.0 using the same task checksum. |
+| [Live Fli](https://hub.harborframework.com/jobs/b984ee9f-65a1-490f-8145-1172da16c56d) | The staging agent received three dates and 21 offers from live Fli. Its report passed the itinerary contract check. |

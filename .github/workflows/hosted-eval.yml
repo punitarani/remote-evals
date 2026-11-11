@@ -72,6 +72,8 @@ jobs:
           CODEX_PROVIDER: ${{ inputs.codex_provider || vars.CODEX_PROVIDER || 'openrouter' }}
           CODEX_MODEL: ${{ inputs.codex_model || vars.CODEX_MODEL }}
           EVAL_SUITE: ${{ inputs.suite || 'smoke' }}
+          EVAL_TARGET: ${{ inputs.suite == 'live-smoke' && 'remote' || 'both' }}
         run: >-
           uv run --locked python -m scripts.run_eval
-          --release "$AGENT_RELEASE" --suite "$EVAL_SUITE" --codex-provider "$CODEX_PROVIDER"
+          --release "$AGENT_RELEASE" --suite "$EVAL_SUITE" --target "$EVAL_TARGET"
+          --codex-provider "$CODEX_PROVIDER"

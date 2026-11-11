@@ -24,6 +24,7 @@ from fli.search.exceptions import (
     SearchHTTPError,
     SearchTimeoutError,
 )
+from fli.search.flights import SearchParseError
 
 LOCALE = {"currency": "USD", "country": "US"}
 
@@ -112,7 +113,7 @@ def capture(origin, destination, start, days, as_of):
                 normalize_flight(result, origin, destination, day)
                 for result in search_day(flights.search, filters, day)
             ]
-        except (ValueError, AttributeError) as exc:
+        except (ValueError, AttributeError, SearchParseError) as exc:
             raise ValueError(f"Could not capture offers for {day}: {exc}") from exc
         counts[day.isoformat()] = len(rows)
         minima[day.isoformat()] = min(row["price_cents"] for row in rows)
