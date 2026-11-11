@@ -29,6 +29,7 @@ class Inventory:
         self.data = data
 
     def matching(self, filters, currency, country, start_date, end_date):
+        """Reject requests outside the capture rather than returning no flights."""
         segment = filters.flight_segments[0]
         if (
             filters.trip_type != TripType.ONE_WAY
@@ -136,7 +137,8 @@ async def main():
             raise RuntimeError(f"Pinned Fli version does not provide {name}")
         server.add_tool(tool)
 
-    # Keep Fli's real MCP validation and serialization while replacing network searches.
+    # Keep Fli's MCP handlers. Freeze time at capture so their date validation
+    # accepts the recorded travel dates on later runs.
     with (
         time_machine.travel(datetime.fromisoformat(data["as_of"]), tick=False),
         patch.object(

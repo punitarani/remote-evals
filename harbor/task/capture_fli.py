@@ -39,6 +39,7 @@ def price_cents(price, currency):
 
 
 def normalize_flight(result, origin, destination, day):
+    """Keep replay fields only, including the full timestamps Fli returns."""
     if len(result.legs) != 1:
         raise ValueError("Expected a nonstop itinerary")
     leg = result.legs[0]
@@ -60,6 +61,8 @@ def normalize_flight(result, origin, destination, day):
 
 
 def search_day(search, filters, day):
+    # Fli can return an empty list without an error. Retry once before
+    # treating the date as a gap in coverage.
     for attempt in range(2):
         try:
             rows = search(filters, **LOCALE)
@@ -119,6 +122,7 @@ def capture(origin, destination, start, days, as_of):
         minima[day.isoformat()] = min(row["price_cents"] for row in rows)
         offers.extend(rows)
 
+    # Check the flight results against the separate date search before saving.
     calendar = SearchDates().search(
         DateSearchFilters(
             passenger_info=passengers,
@@ -176,6 +180,7 @@ def capture(origin, destination, start, days, as_of):
 
 
 def write_snapshot(path, snapshot):
+    """Replace the snapshot atomically and return the digest of the saved bytes."""
     data = (json.dumps(snapshot, indent=2, allow_nan=False) + "\n").encode()
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as output:

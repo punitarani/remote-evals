@@ -17,6 +17,8 @@ BASH_OUTPUT_LIMIT = 16_384
 
 
 class TrialTools:
+    """Run Bash in Harbor's terminal and connect to the task's stdio Fli server."""
+
     def __init__(
         self,
         client: Client,
@@ -52,6 +54,7 @@ class TrialTools:
         exited = False
         try:
             async with asyncio.timeout(TOOL_TIMEOUT):
+                # env -i keeps bridge credentials out of the shell's environment.
                 terminal = await self.client.create_terminal(
                     session_id=self.session_id,
                     command="/usr/bin/env",
@@ -108,6 +111,8 @@ class TrialTools:
         try:
             async with asyncio.timeout(TOOL_TIMEOUT):
                 if self.mcp is None:
+                    # The task selects live or emulated Fli. Reuse its process
+                    # for the rest of this prompt.
                     params = StdioServerParameters(
                         command=server.command,
                         args=server.args,

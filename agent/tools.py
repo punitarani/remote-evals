@@ -14,6 +14,7 @@ BASH_OUTPUT_LIMIT = 16 * 1024
 
 
 async def tool_definitions() -> list[dict[str, Any]]:
+    """Expose the pinned Fli schemas and Bash in the model's function format."""
     tools = [
         {
             "name": "bash",
@@ -88,10 +89,14 @@ async def call_fli(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
 
 
 class ToolExecutor(Protocol):
+    """Return a JSON tool result for one action, wherever the workspace lives."""
+
     async def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
 
 
 class DirectToolExecutor:
+    """Run live Fli and Bash on the local host. This is not a sandbox."""
+
     def __init__(self, workspace: Path):
         self.workspace = workspace
 

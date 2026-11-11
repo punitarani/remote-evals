@@ -10,6 +10,7 @@ MAX_REPORT_BYTES = 16_384
 
 
 def expected_report(fixture, budget_cents=None):
+    """Pick the lowest fare, breaking ties by date, then flight number as text."""
     origin, destination = fixture["origin"], fixture["destination"]
     price_cents, date, flight_number = min(
         (
@@ -42,6 +43,7 @@ def unique_keys(pairs):
 
 
 def grade(path, expected, *, live_scope=None):
+    """Return a reward and diagnostic. Live mode checks scope and format only."""
     if path.is_symlink() or not path.is_file():
         return 0, "Missing regular report.json file"
     with path.open("rb") as report_file:
@@ -77,6 +79,7 @@ def grade(path, expected, *, live_scope=None):
         ):
             return 0, "Live report has an invalid date, flight number, or fare"
         return 1, "Live report matches the itinerary contract"
+    # JSON booleans and floats can compare equal to an integer in Python.
     for key, value in expected.items():
         if type(report[key]) is not type(value) or report[key] != value:
             return 0, f"Incorrect {key}. Expected {value!r}"

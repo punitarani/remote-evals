@@ -10,6 +10,8 @@ class InferenceError(RuntimeError):
 
 
 class OpenRouter:
+    """Validate assistant messages and report provider failures as InferenceError."""
+
     def __init__(self, client: httpx.AsyncClient, api_key: str, model: str):
         self.client = client
         self.api_key = api_key
@@ -68,6 +70,7 @@ class OpenRouter:
         except AttributeError, ValueError, KeyError, IndexError, TypeError:
             raise InferenceError("OpenRouter returned an invalid completion.") from None
 
+        # Pass reasoning fields back with the assistant message on tool follow-ups.
         return {
             key: message[key]
             for key in (

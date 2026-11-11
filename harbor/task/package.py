@@ -42,6 +42,7 @@ def prepare_task(task: Path, snapshot: bytes) -> None:
         key: fixture[key] for key in ("origin", "destination", "start_date", "end_date")
     }
     if name == "live-smoke":
+        # Use a future window at launch. Give the offline verifier scope only.
         start = datetime.now(UTC).date() + timedelta(days=21)
         scope.update(
             start_date=start.isoformat(),
@@ -52,6 +53,7 @@ def prepare_task(task: Path, snapshot: bytes) -> None:
         network = 'network_mode = "allowlist"\nallowed_hosts = ["www.google.com"]'
         mcp = 'command = "/opt/fixture/.venv/bin/fli-mcp"\nargs = []'
     else:
+        # Replay and grading must use byte-for-byte copies of the same capture.
         verifier_data = snapshot
         metadata = (
             f'fli_mode = "emulated"\nfixture_sha256 = "{sha256(snapshot).hexdigest()}"'

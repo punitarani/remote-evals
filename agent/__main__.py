@@ -1,3 +1,5 @@
+"""Run the flight agent locally against live Fli and a caller-owned workspace."""
+
 import argparse
 import asyncio
 import os

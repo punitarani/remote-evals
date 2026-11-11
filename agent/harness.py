@@ -1,3 +1,5 @@
+"""Run the same model and tool loop locally or against a Harbor trial."""
+
 import json
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -24,12 +26,14 @@ def valid_bash_command(command: object) -> bool:
 
 
 async def run_agent(prompt: str, complete: Completion, executor: ToolExecutor) -> str:
+    """Return the final assistant text. The executor owns all tool side effects."""
     tools = await tool_definitions()
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
     ]
     remaining_actions = 12
+    # Leave a model turn to read the final tool result and answer.
     for _ in range(13):
         message = await complete(messages, tools)
         calls = message.get("tool_calls") or []

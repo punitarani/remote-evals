@@ -1,3 +1,5 @@
+"""Accept Harbor prompts over ACP and emit updates for its trial trajectory."""
+
 import asyncio
 import json
 from contextlib import suppress
@@ -118,6 +120,7 @@ class RemoteFlightAgent:
     async def prompt(
         self, session_id: str, prompt: list[Any], **kwargs: Any
     ) -> PromptResponse:
+        # Consume the ACP session so a second prompt cannot reuse its staging run.
         session = self.sessions.pop(session_id, None)
         if session is None:
             raise RequestError.invalid_params(

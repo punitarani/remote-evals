@@ -277,8 +277,9 @@ def validate_adapter_source(config, scratch, env):
     )
     if adapter is None:
         return
-    # A local-task dry run stops before Hub source resolution. A registered
-    # task lets Harbor validate the private ACP repo without uploading or running anything.
+    # A local-task dry run stops before Hub resolves the adapter source.
+    # A registered task lets Harbor check the pinned Git ref without uploading
+    # task packages or queuing trials.
     source_check = {
         **config,
         "job_name": f"{config['job_name']}-source",
@@ -321,6 +322,7 @@ def wait_for_job(job_id, env):
 
 
 def trial_outcome(result, trace, release):
+    """Separate run failures from the verifier's score for a completed trial."""
     rewards = (result.get("verifier_result") or {}).get("rewards") or {}
     reward = rewards.get("reward")
     error_type = (
@@ -379,6 +381,7 @@ def read_bridge_trace(path):
 
 
 def trajectory_issue(path, trace):
+    """Match the adapter's completed actions to Harbor's calls and observations."""
     try:
         trajectory = read_json(path)
         if trajectory["session_id"] != trace["trial_id"]:

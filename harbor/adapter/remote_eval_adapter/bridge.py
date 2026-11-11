@@ -1,3 +1,5 @@
+"""Relay actions and results between staging and a single Harbor trial."""
+
 from __future__ import annotations
 
 import asyncio
@@ -76,6 +78,8 @@ class Settings:
 
 @dataclass
 class Trace:
+    """Record release, model, and action status without storing tool payloads."""
+
     trial_id: str
     release: str
     model: str | None = None
@@ -132,6 +136,7 @@ class Bridge:
         self.run_path = f"{settings.url}/v1/evals/{trace.trial_id}"
 
     async def _post(self, path: str, body: JsonObject) -> JsonObject:
+        # Staging replays identical POSTs while it retains the trial session.
         for attempt in range(3):
             try:
                 response = await self.client.post(
@@ -195,6 +200,7 @@ class Bridge:
                 "endpoint_model", "Staging did not confirm the requested model."
             )
 
+        # Reuse the result if staging repeats an action ID. Do not run Bash twice.
         completed: dict[str, tuple[ToolAction, JsonObject]] = {}
         for _ in range(33):
             kind = response.get("kind")

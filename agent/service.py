@@ -1,3 +1,5 @@
+"""Keep inference on staging and delegate tool actions to the Harbor trial."""
+
 import asyncio
 import hashlib
 import json
@@ -109,11 +111,15 @@ class Action:
 
 @dataclass
 class Receipt:
+    """Remember the response to an accepted result, even while inference is pending."""
+
     fingerprint: str
     response: asyncio.Future[Payload]
 
 
 class TrialExecutor:
+    """Suspend one agent run at each tool call until Harbor posts its result."""
+
     def __init__(self, trial_id: str, settings: Settings):
         self.trial_id = trial_id
         self.settings = settings
@@ -142,6 +148,7 @@ class TrialExecutor:
         return await self.pending.result
 
     async def submit(self, action_id: str, result: Payload) -> Payload:
+        """Accept a result once. Identical retries share the next event."""
         encoded_result = json.dumps(
             result, sort_keys=True, separators=(",", ":")
         ).encode()
@@ -157,6 +164,8 @@ class TrialExecutor:
         if self.terminal is not None:
             return self.terminal
 
+        # Register the next response before waking the agent. Shield it from
+        # request cancellation so an HTTP retry can still receive the event.
         self.response = asyncio.get_running_loop().create_future()
         self.receipts[action_id] = Receipt(fingerprint, self.response)
         pending, self.pending = self.pending, None
@@ -214,6 +223,8 @@ async def run_session(executor: TrialExecutor, prompt: str, model: OpenRouter) -
 def create_app(
     settings: Settings, *, model_transport: httpx.AsyncBaseTransport | None = None
 ) -> FastAPI:
+    # Sessions are process-local. Keep staging on one worker so retries find
+    # the same run and its cached responses.
     sessions: dict[str, Session] = {}
 
     def get_session(trial_id: str) -> Session | None:
