@@ -159,8 +159,12 @@ class Bridge:
             raise BridgeError(
                 "endpoint_protocol", "Staging response did not identify this trial."
             )
-        if "release" in data and data["release"] != self.settings.release:
-            raise BridgeError("endpoint_release", "Staging served a different release.")
+        if (path == "/start" or "release" in data) and data.get(
+            "release"
+        ) != self.settings.release:
+            raise BridgeError(
+                "endpoint_release", "Staging did not confirm the expected release."
+            )
         return data
 
     async def run(

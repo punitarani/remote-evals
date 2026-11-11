@@ -51,6 +51,31 @@ def tool(trial_id=TRIAL_ID, command="echo hi"):
     }
 
 
+@pytest.mark.parametrize("release", [None, "f" * 40])
+def test_start_must_confirm_release_before_running_tools(tmp_path, release):
+    settings = Settings(
+        "https://example.test", "test-token", RELEASE, tmp_path / "meta.json"
+    )
+    trace = Trace(trial_id=TRIAL_ID, release=RELEASE)
+    response = tool()
+    if release is None:
+        del response["release"]
+    else:
+        response["release"] = release
+
+    async def execute(action):
+        pytest.fail(f"Unexpected tool call: {action.name}")
+
+    async def run():
+        transport = httpx.MockTransport(lambda _: httpx.Response(200, json=response))
+        async with httpx.AsyncClient(transport=transport) as client:
+            with pytest.raises(BridgeError) as error:
+                await Bridge(client, settings, trace).run("check", execute)
+            assert error.value.code == "endpoint_release"
+
+    asyncio.run(run())
+
+
 def test_retry_and_duplicate_tool_delivery_execute_once(tmp_path):
     requests = []
     calls = []

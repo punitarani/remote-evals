@@ -360,18 +360,29 @@ def trajectory_issue(path, trace):
         trajectory = read_json(path)
         if trajectory["session_id"] != trace["trial_id"]:
             return "trajectory session mismatch"
-        calls = {}
+        steps = trajectory["steps"]
+        if not isinstance(steps, list) or not steps:
+            return "trajectory invalid"
+        calls = []
         observed = set()
-        for step in trajectory["steps"]:
+        for step in steps:
             for call in step.get("tool_calls") or []:
-                calls[call["tool_call_id"]] = call["function_name"]
+                calls.append((call["tool_call_id"], call["function_name"]))
             for result in (step.get("observation") or {}).get("results") or []:
                 if result.get("content"):
                     observed.add(result["source_call_id"])
-        for action in trace["actions"]:
-            action_id = action["action_id"]
-            if calls.get(action_id) != action["name"] or action_id not in observed:
-                return "trajectory tool trace incomplete"
+        expected_calls = [
+            (action["action_id"], action["name"])
+            for action in trace["actions"]
+            if action["status"] == "completed"
+        ]
+        expected_ids = {action_id for action_id, _ in expected_calls}
+        if (
+            len(expected_ids) != len(trace["actions"])
+            or calls != expected_calls
+            or observed != expected_ids
+        ):
+            return "trajectory tool trace mismatch"
     except FileNotFoundError:
         return "trajectory missing"
     except AttributeError, KeyError, OSError, TypeError, ValueError:
@@ -385,9 +396,11 @@ def read_trials(job_dir, release):
         result = read_json(result_path)
         trace = read_bridge_trace(result_path.parent / TRACE)
         outcome, reward = trial_outcome(result, trace, release)
+        issue = None
         if trace is not None and outcome in {"pass", "task score"}:
-            path = result_path.parent / "agent/trajectory.json"
-            outcome = trajectory_issue(path, trace) or outcome
+            issue = trajectory_issue(
+                result_path.parent / "agent/trajectory.json", trace
+            )
         agent = result.get("agent_info") or {}
         model = agent.get("model_info") or {}
         trials.append(
@@ -402,6 +415,7 @@ def read_trials(job_dir, release):
                 "model": (trace or {}).get("model") or model.get("name"),
                 "reward": reward,
                 "outcome": outcome,
+                "trajectory_issue": issue,
                 "error_type": (result.get("exception_info") or {}).get(
                     "exception_type"
                 ),
@@ -432,13 +446,22 @@ def summarize(job_id, job_dir, release, status, fixture_revisions):
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
     )
     rows = [
-        "| Task | Agent | Provider | Model | Trial ID | Reward | Outcome |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        "| Task | Agent | Provider | Model | Trial ID | Reward | Outcome | Trajectory issue |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     for trial in trials:
         values = [
             trial[key]
-            for key in ("task", "agent", "provider", "model", "id", "reward", "outcome")
+            for key in (
+                "task",
+                "agent",
+                "provider",
+                "model",
+                "id",
+                "reward",
+                "outcome",
+                "trajectory_issue",
+            )
         ]
         columns = [
             str(value).replace("|", "\\|").replace("\n", " ")
@@ -455,7 +478,10 @@ def summarize(job_id, job_dir, release, status, fixture_revisions):
     return (
         status["status"] == "completed"
         and len(trials) == status["total"]
-        and all(trial["outcome"] == "pass" for trial in trials)
+        and all(
+            trial["outcome"] == "pass" and trial["trajectory_issue"] is None
+            for trial in trials
+        )
     )
 
 

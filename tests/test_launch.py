@@ -146,17 +146,15 @@ def test_summary_reads_harbors_archive_layout_and_retains_provenance(tmp_path):
             }
         )
     )
-    (trial / "result.json").write_text(
-        json.dumps(
-            {
-                "id": "trial-id",
-                "task_name": "cheapest-nonstop",
-                "task_id": {"ref": "sha256:task-digest"},
-                "config": {"agent": {"name": "acp"}},
-                "verifier_result": {"rewards": {"reward": 1}},
-            }
-        )
-    )
+    result_path = trial / "result.json"
+    result = {
+        "id": "trial-id",
+        "task_name": "cheapest-nonstop",
+        "task_id": {"ref": "sha256:task-digest"},
+        "config": {"agent": {"name": "acp"}},
+        "verifier_result": {"rewards": {"reward": 1}},
+    }
+    result_path.write_text(json.dumps(result))
     status = {"status": "completed", "total": 1}
     revisions = {"cheapest-nonstop": "fixture-digest"}
     trajectory = trial / "agent/trajectory.json"
@@ -170,18 +168,34 @@ def test_summary_reads_harbors_archive_layout_and_retains_provenance(tmp_path):
             }
         ],
     }
-    assert run_eval.read_trials(tmp_path, RELEASE)[0]["outcome"] == "trajectory missing"
+    assert (
+        run_eval.read_trials(tmp_path, RELEASE)[0]["trajectory_issue"]
+        == "trajectory missing"
+    )
+    assert not run_eval.summarize("job-id", tmp_path, RELEASE, status, revisions)
     trajectory.write_text(json.dumps({**atif, "session_id": "other-session"}))
     assert (
-        run_eval.read_trials(tmp_path, RELEASE)[0]["outcome"]
+        run_eval.read_trials(tmp_path, RELEASE)[0]["trajectory_issue"]
         == "trajectory session mismatch"
     )
-    trajectory.write_text(
-        json.dumps({**atif, "steps": [{"tool_calls": atif["steps"][0]["tool_calls"]}]})
-    )
+    step = atif["steps"][0]
+    for bad_step in (
+        {"tool_calls": step["tool_calls"]},
+        {**step, "tool_calls": step["tool_calls"] * 2},
+    ):
+        trajectory.write_text(json.dumps({**atif, "steps": [bad_step]}))
+        assert run_eval.read_trials(tmp_path, RELEASE)[0]["trajectory_issue"] == (
+            "trajectory tool trace mismatch"
+        )
+    result["verifier_result"]["rewards"]["reward"] = 0
+    result_path.write_text(json.dumps(result))
     trial_result = run_eval.read_trials(tmp_path, RELEASE)[0]
-    assert trial_result["outcome"] == "trajectory tool trace incomplete"
-    assert trial_result["reward"] == 1
+    assert trial_result["outcome"] == "task score"
+    assert trial_result["reward"] == 0
+    assert trial_result["trajectory_issue"] == "trajectory tool trace mismatch"
+
+    result["verifier_result"]["rewards"]["reward"] = 1
+    result_path.write_text(json.dumps(result))
     trajectory.write_text(json.dumps(atif))
 
     assert run_eval.summarize("job-id", tmp_path, RELEASE, status, revisions)

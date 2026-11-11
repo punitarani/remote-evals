@@ -174,9 +174,10 @@ carry the tool arguments and results.
 After the trial exits, Harbor converts those events to `agent/trajectory.json`
 for the Hub trajectory view. Open the trial to inspect named calls such as
 `search_flights` and `bash` alongside their results. The launcher checks the
-trajectory's session ID and verifies that each bridge action has a named call
-and linked observation. It reports trajectory problems alongside the original
-reward. Harbor 0.25's [live trajectory streaming](https://docs.harborframework.com/jobs/stream)
+trajectory's session ID and matches its named tool calls and linked
+observations to the bridge action log. It reports trajectory problems
+alongside the original reward and trial outcome.
+Harbor 0.25's [live trajectory streaming](https://docs.harborframework.com/jobs/stream)
 covers Claude Code and Codex in the local viewer. Use the completed trial's
 trajectory for custom ACP agents in Hosted Harbor.
 
