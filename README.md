@@ -193,6 +193,12 @@ on release `91e76e6` scored 1.0. Hub showed the running status during execution
 and displayed all four named calls and their results after completion. Expand
 the Bash step to see the report write and terminal exit status.
 
+The [model metadata run](https://hub.harborframework.com/jobs/9d2f6725-6049-4a41-a3d1-fb2c9cab45e9)
+on release `b337c03` scored 1.0 on both staging trials. Harbor recorded
+`openrouter` as the provider and `deepseek/deepseek-v4.1-flash-1017` as
+the model in both trial results. To see the provider and model grouping in
+Hub, select **Provider** alongside **Model** on the job overview.
+
 ## Verified hosted run
 
 The [full Hosted Harbor job](https://hub.harborframework.com/jobs/59eccc7a-9724-44a8-8e13-ef0160a3f4bf)
