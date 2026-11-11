@@ -7,11 +7,14 @@ import httpx
 
 from agent.harness import ToolBudgetExceeded, run_agent
 from agent.model import DEFAULT_MODEL, InferenceError, OpenRouter
+from agent.tools import DirectToolExecutor
 
 
 async def run(prompt: str, workspace: Path, api_key: str, model: str) -> str:
     async with httpx.AsyncClient(timeout=40) as client:
-        return await run_agent(prompt, OpenRouter(client, api_key, model), workspace)
+        return await run_agent(
+            prompt, OpenRouter(client, api_key, model), DirectToolExecutor(workspace)
+        )
 
 
 def main() -> None:

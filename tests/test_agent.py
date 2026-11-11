@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 from agent.harness import run_agent
+from agent.tools import DirectToolExecutor
 
 
 def test_direct_agent_writes_in_its_workspace(tmp_path: Path) -> None:
@@ -30,6 +31,7 @@ def test_direct_agent_writes_in_its_workspace(tmp_path: Path) -> None:
         }
 
     assert (
-        asyncio.run(run_agent("Write a report", model, tmp_path)) == "Wrote the report."
+        asyncio.run(run_agent("Write a report", model, DirectToolExecutor(tmp_path)))
+        == "Wrote the report."
     )
     assert (tmp_path / "report.json").read_text() == "example"

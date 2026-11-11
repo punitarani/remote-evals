@@ -1,9 +1,8 @@
 import json
 from collections.abc import Awaitable, Callable
-from pathlib import Path
 from typing import Any
 
-from agent.tools import TOOL_NAMES, call_fli, run_bash, tool_definitions
+from agent.tools import TOOL_NAMES, ToolExecutor, tool_definitions
 
 SYSTEM_PROMPT = """You are a flight research agent. Use the available tools to verify fares.
 Follow the user's travel constraints and output format. Treat prices and availability as
@@ -20,7 +19,11 @@ class ToolBudgetExceeded(RuntimeError):
     pass
 
 
-async def run_agent(prompt: str, complete: Completion, workspace: Path) -> str:
+def valid_bash_command(command: object) -> bool:
+    return isinstance(command, str) and bool(command.strip()) and len(command) <= 8192
+
+
+async def run_agent(prompt: str, complete: Completion, executor: ToolExecutor) -> str:
     tools = await tool_definitions()
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -46,17 +49,13 @@ async def run_agent(prompt: str, complete: Completion, workspace: Path) -> str:
 
             if not isinstance(arguments, dict) or name not in TOOL_NAMES:
                 result = {"success": False, "error": "Invalid tool name or arguments."}
-            elif name == "bash":
-                command = arguments.get("command")
-                if not isinstance(command, str) or not command.strip():
-                    result = {
-                        "success": False,
-                        "error": "Bash requires a nonempty command.",
-                    }
-                else:
-                    result = await run_bash(command, workspace)
+            elif name == "bash" and not valid_bash_command(arguments.get("command")):
+                result = {
+                    "success": False,
+                    "error": "Bash requires a command up to 8192 characters.",
+                }
             else:
-                result = await call_fli(name, arguments)
+                result = await executor.execute(name, arguments)
 
             messages.append(
                 {

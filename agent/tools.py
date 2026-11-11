@@ -3,7 +3,7 @@ import json
 import os
 import signal
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from fli.mcp.server import mcp
 
@@ -85,3 +85,17 @@ async def call_fli(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     if result.structured_content is not None:
         return result.structured_content
     return json.loads(result.content[0].text)
+
+
+class ToolExecutor(Protocol):
+    async def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]: ...
+
+
+class DirectToolExecutor:
+    def __init__(self, workspace: Path):
+        self.workspace = workspace
+
+    async def execute(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "bash":
+            return await run_bash(arguments["command"], self.workspace)
+        return await call_fli(name, arguments)
