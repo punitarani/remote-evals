@@ -9,9 +9,9 @@ on:
         required: true
         type: string
       suite:
-        description: Flight cases to run
+        description: Flight tool mode
         type: choice
-        options: [smoke, full]
+        options: [smoke, live-smoke]
         default: smoke
       codex_provider:
         description: Inference provider for the Codex control

@@ -2,6 +2,8 @@
 
 import argparse
 import json
+import re
+from datetime import date
 from pathlib import Path
 
 MAX_REPORT_BYTES = 16_384
@@ -9,18 +11,14 @@ MAX_REPORT_BYTES = 16_384
 
 def expected_report(fixture):
     origin, destination = fixture["origin"], fixture["destination"]
-    options = [
-        (item["price_cents"], item["date"], item["legs"][0]["flight"])
-        for item in fixture["itineraries"]
-        if len(item["legs"]) == 1
-        and item["legs"][0]["from"] == origin
-        and item["legs"][0]["to"] == destination
-        and fixture["start_date"] <= item["date"] <= fixture["end_date"]
-    ]
-    if not options:
-        return {"status": "no_match"}
-
-    price_cents, date, flight_number = min(options)
+    price_cents, date, flight_number = min(
+        (
+            row["price_cents"],
+            row["date"],
+            row["airline"].lstrip("_") + row["flight_number"],
+        )
+        for row in fixture["itineraries"]
+    )
     return {
         "status": "found",
         "origin": origin,
@@ -41,7 +39,7 @@ def unique_keys(pairs):
     return result
 
 
-def grade(path, expected):
+def grade(path, expected, *, live_scope=None):
     if path.is_symlink() or not path.is_file():
         return 0, "Missing regular report.json file"
     with path.open("rb") as report_file:
@@ -54,6 +52,29 @@ def grade(path, expected):
         return 0, "report.json is not a valid JSON document with unique keys"
     if not isinstance(report, dict) or report.keys() != expected.keys():
         return 0, f"Expected a JSON object with fields: {', '.join(expected)}"
+    if live_scope is not None:
+        if any(type(report[key]) is not type(value) for key, value in expected.items()):
+            return 0, "Live report fields have incorrect types"
+        if any(
+            report[key] != expected[key]
+            for key in ("status", "origin", "destination", "currency")
+        ):
+            return (
+                0,
+                "Live report does not describe a found USD itinerary on the requested route",
+            )
+        try:
+            departure = date.fromisoformat(report["departure_date"]).isoformat()
+        except ValueError:
+            return 0, "Live report has an invalid departure date"
+        if not (
+            departure == report["departure_date"]
+            and live_scope["start_date"] <= departure <= live_scope["end_date"]
+            and re.fullmatch(r"[A-Z0-9]{2}[0-9]+[A-Z]?", report["flight_number"])
+            and report["price_cents"] > 0
+        ):
+            return 0, "Live report has an invalid date, flight number, or fare"
+        return 1, "Live report matches the itinerary contract"
     for key, value in expected.items():
         if type(report[key]) is not type(value) or report[key] != value:
             return 0, f"Incorrect {key}. Expected {value!r}"
@@ -68,7 +89,19 @@ def main():
     fixture = json.loads(
         Path(__file__).with_name("fixture.json").read_text(encoding="utf-8")
     )
-    reward, diagnostic = grade(args.report, expected_report(fixture))
+    if fixture.get("mode") == "live":
+        shape = {
+            "status": "found",
+            "origin": fixture["origin"],
+            "destination": fixture["destination"],
+            "departure_date": "",
+            "flight_number": "",
+            "currency": "USD",
+            "price_cents": 0,
+        }
+        reward, diagnostic = grade(args.report, shape, live_scope=fixture)
+    else:
+        reward, diagnostic = grade(args.report, expected_report(fixture))
     args.logs.mkdir(parents=True, exist_ok=True)
     (args.logs / "reward.txt").write_text(f"{reward}\n", encoding="utf-8")
     (args.logs / "diagnostic.txt").write_text(f"{diagnostic}\n", encoding="utf-8")

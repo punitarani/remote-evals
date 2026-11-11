@@ -250,7 +250,7 @@ def package_tasks(release, suite, scratch):
     except subprocess.CalledProcessError as exc:
         raise LaunchError("task packaging failed for the requested release") from exc
     tasks = sorted(path.parent for path in target.glob("*/task.toml"))
-    if len(tasks) != (1 if suite == "smoke" else 2):
+    if len(tasks) != 1:
         raise LaunchError("task packager produced an unexpected number of tasks")
     return tasks
 
@@ -510,7 +510,7 @@ def summarize(job_id, job_dir, release, status, fixture_revisions):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=("smoke", "full"), default="smoke")
+    parser.add_argument("--suite", choices=("smoke", "live-smoke"), default="smoke")
     parser.add_argument("--target", choices=("both", "codex", "remote"), default="both")
     parser.add_argument(
         "--codex-provider", choices=("openrouter", "openai"), default="openrouter"
@@ -545,9 +545,9 @@ def main(argv=None):
             fixture_revisions = {}
             for task in tasks:
                 with (task / "task.toml").open("rb") as manifest:
-                    fixture_revisions[task.name] = tomllib.load(manifest)["metadata"][
-                        "fixture_sha256"
-                    ]
+                    metadata = tomllib.load(manifest)["metadata"]
+                if digest := metadata.get("fixture_sha256"):
+                    fixture_revisions[task.name] = digest
             config = job_config(
                 args.target,
                 args.codex_provider,

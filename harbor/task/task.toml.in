@@ -5,11 +5,11 @@ artifacts = [{ source = "/workspace/report.json", destination = "report.json" }]
 name = "remote-evals/TASK_NAME"
 
 [metadata]
-fixture_sha256 = "FIXTURE_SHA256"
+TASK_METADATA
 
 [agent]
 timeout_sec = 240
-network_mode = "no-network"
+AGENT_NETWORK
 
 [environment]
 workdir = "/workspace"
@@ -20,8 +20,7 @@ storage_mb = 10240
 [[environment.mcp_servers]]
 name = "fli"
 transport = "stdio"
-command = "/opt/fixture/.venv/bin/python"
-args = ["/opt/fixture/fixture_mcp.py"]
+MCP_COMMAND
 
 [verifier]
 timeout_sec = 30
