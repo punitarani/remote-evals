@@ -184,6 +184,11 @@ Compare `remote-eval.json` with the downloaded `report.json` and verifier
 diagnostic. Use the start and finish times from two remote traces to check
 concurrent execution.
 
+The [trace smoke trial](https://hub.harborframework.com/jobs/339eebd9-3892-4537-9c1d-1d05891b4ef8/trials/a849faaf-1e3f-4b94-96fe-054337fccd41)
+on release `91e76e6` scored 1.0. Hub showed the running status during execution
+and displayed all four named calls and their results after completion. Expand
+the Bash step to see the report write and terminal exit status.
+
 ## Verified hosted run
 
 The [full Hosted Harbor job](https://hub.harborframework.com/jobs/59eccc7a-9724-44a8-8e13-ef0160a3f4bf)
