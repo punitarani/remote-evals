@@ -7,11 +7,18 @@ from scripts import run_eval
 
 RELEASE = "a" * 40
 URL = "https://staging.example.org"
+REMOTE_MODEL = "openrouter/deepseek/deepseek-v4.1-flash-1017"
 
 
 def test_hosted_configuration_routes_each_secret_only_to_its_agent():
     config = run_eval.job_config(
-        "both", "openrouter", RELEASE, URL, [Path("case")], "test"
+        "both",
+        "openrouter",
+        RELEASE,
+        URL,
+        [Path("case")],
+        "test",
+        remote_model=REMOTE_MODEL,
     )
     codex, adapter = config["agents"]
 
@@ -24,6 +31,7 @@ def test_hosted_configuration_routes_each_secret_only_to_its_agent():
     assert codex["model_name"] == "openrouter/deepseek/deepseek-v4.1-flash-1017"
     assert codex["extra_allowed_hosts"] == ["openrouter.ai"]
     assert adapter["secrets"] == ["BRIDGE_TOKEN"]
+    assert adapter["model_name"] == REMOTE_MODEL
     assert adapter["source"]["ref"] == RELEASE
     assert adapter["extra_allowed_hosts"] == ["staging.example.org"]
 
@@ -72,8 +80,23 @@ def test_release_and_model_mode_are_checked_before_queueing():
     with pytest.raises(run_eval.LaunchError, match="model mode"):
         run_eval.validate_health({"release": RELEASE, "mode": "scripted"}, RELEASE)
 
-    run_eval.validate_health(
-        {"release": RELEASE, "mode": "scripted"}, RELEASE, dry_run=True
+    assert (
+        run_eval.validate_health(
+            {"release": RELEASE, "mode": "scripted"}, RELEASE, dry_run=True
+        )
+        is None
+    )
+    with pytest.raises(run_eval.LaunchError, match="OpenRouter model"):
+        run_eval.validate_health({"release": RELEASE, "mode": "model"}, RELEASE)
+    health = {
+        "release": RELEASE,
+        "mode": "model",
+        "provider": "openrouter",
+        "model": "deepseek/example-override",
+    }
+    assert (
+        run_eval.validate_health(health, RELEASE)
+        == "openrouter/deepseek/example-override"
     )
 
 

@@ -112,7 +112,10 @@ ngrok http http://127.0.0.1:8000 --inspect=false
 
 Put the HTTPS forwarding origin in `STAGING_URL` in `.env`. The staging
 `/healthz` reports the deployed SHA, model, and mode. The launcher verifies the
-SHA and runs a Harbor dry run against the pinned adapter source.
+SHA and submits the deployed provider and model as Harbor's `model_name`.
+The adapter advertises that model over ACP, and staging checks it before
+starting inference. The launcher also runs a Harbor dry run against the
+pinned adapter source.
 
 For a credential-free inference check, start the same service with
 `AGENT_MODE=scripted`. This probe uses Harbor's ACP runner to request one Bash

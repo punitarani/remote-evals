@@ -25,6 +25,9 @@ from acp.schema import (
     McpServerStdio,
     NewSessionResponse,
     PromptResponse,
+    SessionConfigOptionSelect,
+    SessionConfigSelectOption,
+    SetSessionConfigOptionResponse,
     SseMcpServer,
     TextContentBlock,
 )
@@ -42,6 +45,22 @@ class Session:
 class RemoteFlightAgent:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self.model_options = []
+        if settings.model_name:
+            self.model_options.append(
+                SessionConfigOptionSelect(
+                    id="model",
+                    name="Staging model",
+                    category="model",
+                    type="select",
+                    current_value=settings.model_name,
+                    options=[
+                        SessionConfigSelectOption(
+                            value=settings.model_name, name=settings.model_name
+                        )
+                    ],
+                )
+            )
         self.client: Client
         self.sessions: dict[str, Session] = {}
         self.active: dict[str, asyncio.Task] = {}
@@ -78,7 +97,23 @@ class RemoteFlightAgent:
             None,
         )
         self.sessions[session_id] = Session(workspace, fli_server)
-        return NewSessionResponse(session_id=session_id)
+        return NewSessionResponse(
+            session_id=session_id, config_options=self.model_options or None
+        )
+
+    async def set_config_option(
+        self, config_id: str, session_id: str, value: str | bool, **kwargs: Any
+    ) -> SetSessionConfigOptionResponse:
+        if (
+            session_id not in self.sessions
+            or not self.model_options
+            or config_id != self.model_options[0].id
+            or value != self.model_options[0].current_value
+        ):
+            raise RequestError.invalid_params(
+                {"message": "Only the deployed staging model is available"}
+            )
+        return SetSessionConfigOptionResponse(config_options=self.model_options)
 
     async def prompt(
         self, session_id: str, prompt: list[Any], **kwargs: Any

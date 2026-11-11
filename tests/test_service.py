@@ -6,6 +6,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from agent.model import DEFAULT_MODEL
 from agent.service import Settings, create_app
 from agent.tools import DirectToolExecutor
 
@@ -152,8 +153,14 @@ def test_model_sessions_use_independent_workspaces(tmp_path) -> None:
 
             async def trial(marker):
                 base = f"/v1/evals/{uuid4()}"
+                body = {"prompt": marker, "release": RELEASE}
+                wrong_model = await http.post(
+                    f"{base}/start", json={**body, "model_name": "openrouter/wrong"}
+                )
+                assert wrong_model.status_code == 409
                 start = await http.post(
-                    f"{base}/start", json={"prompt": marker, "release": RELEASE}
+                    f"{base}/start",
+                    json={**body, "model_name": f"openrouter/{DEFAULT_MODEL}"},
                 )
                 action = start.json()
                 workspace = tmp_path / marker

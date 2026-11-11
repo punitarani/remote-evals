@@ -51,10 +51,21 @@ def staging_origin(value):
 def validate_health(health, release, *, dry_run=False):
     if not isinstance(health, dict) or health.get("release") != release:
         raise LaunchError("endpoint: staging release differs from the requested commit")
-    if not dry_run and health.get("mode") != "model":
+    if dry_run and health.get("mode") == "scripted":
+        return None
+    if health.get("mode") != "model":
         raise LaunchError(
             "endpoint: switch the staging service to model mode for scoring"
         )
+    provider, model = health.get("provider"), health.get("model")
+    if (
+        provider != "openrouter"
+        or not isinstance(model, str)
+        or not model
+        or any(char.isspace() for char in model)
+    ):
+        raise LaunchError("endpoint: staging did not report a valid OpenRouter model")
+    return f"{provider}/{model}"
 
 
 def check_staging(url, release, *, dry_run):
@@ -64,11 +75,19 @@ def check_staging(url, release, *, dry_run):
         raise LaunchError(
             "endpoint: could not read staging /healthz over HTTPS"
         ) from exc
-    validate_health(health, release, dry_run=dry_run)
+    return validate_health(health, release, dry_run=dry_run)
 
 
 def job_config(
-    target, codex_provider, release, url, tasks, job_name, *, codex_model=None
+    target,
+    codex_provider,
+    release,
+    url,
+    tasks,
+    job_name,
+    *,
+    codex_model=None,
+    remote_model=None,
 ):
     agents = []
     secrets = {}
@@ -114,6 +133,7 @@ def job_config(
         agents.append(
             {
                 "name": "acp",
+                "model_name": remote_model,
                 "source": {
                     "type": "github",
                     "repo": REPOSITORY,
@@ -511,6 +531,9 @@ def main(argv=None):
             if args.target == "codex"
             else staging_origin(os.environ.get("STAGING_URL", ""))
         )
+        remote_model = (
+            check_staging(url, release, dry_run=args.dry_run) if url else None
+        )
         now = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         name = f"remote-evals-{args.suite}-{release[:8]}-{now}-{uuid4().hex[:6]}"
         with tempfile.TemporaryDirectory(prefix="remote-evals-") as temporary:
@@ -530,10 +553,9 @@ def main(argv=None):
                 tasks,
                 name,
                 codex_model=args.codex_model,
+                remote_model=remote_model,
             )
             env = harbor_environment(config)
-            if url:
-                check_staging(url, release, dry_run=args.dry_run)
             validate_adapter_source(config, scratch, env)
             job_id = submit(config, scratch, env, dry_run=args.dry_run)
         if job_id is None:

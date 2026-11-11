@@ -5,7 +5,8 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from acp import PROTOCOL_VERSION, spawn_agent_process, text_block
+import pytest
+from acp import PROTOCOL_VERSION, RequestError, spawn_agent_process, text_block
 from acp.schema import (
     ClientCapabilities,
     CreateTerminalResponse,
@@ -16,6 +17,8 @@ from acp.schema import (
 )
 
 RELEASE = "2" * 40
+MODEL = "deepseek/example"
+MODEL_NAME = f"openrouter/{MODEL}"
 MCP_SERVER = """
 from mcp.server.fastmcp import FastMCP
 
@@ -73,8 +76,9 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
                     "name": "search_dates",
                     "arguments": {"origin": "SFO"},
                     "release": RELEASE,
-                    "mode": "scripted",
-                    "model": None,
+                    "mode": "model",
+                    "provider": "openrouter",
+                    "model": MODEL,
                 }
             elif parts == ["actions", "1", "result"]:
                 response = {
@@ -102,6 +106,7 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
             "STAGING_URL": f"http://127.0.0.1:{server.server_port}",
             "BRIDGE_TOKEN": "trial-bridge-token",
             "AGENT_RELEASE": RELEASE,
+            "HARBOR_ACP_REQUESTED_MODEL": MODEL_NAME,
             "REMOTE_EVAL_METADATA_PATH": str(metadata),
         }.items():
             monkeypatch.setenv(key, value)
@@ -131,6 +136,19 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
                         )
                     ],
                 )
+                assert [option.current_value for option in session.config_options] == [
+                    MODEL_NAME
+                ]
+                with pytest.raises(RequestError):
+                    await conn.set_config_option(
+                        session_id=session.session_id,
+                        config_id="model",
+                        value="openrouter/wrong",
+                    )
+                selection = await conn.set_config_option(
+                    session_id=session.session_id, config_id="model", value=MODEL_NAME
+                )
+                assert selection.config_options == session.config_options
                 response = await conn.prompt(
                     session_id=session.session_id, prompt=[text_block("do the task")]
                 )
@@ -158,7 +176,7 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
             thread.join()
 
     assert received == [
-        {"prompt": "do the task", "release": RELEASE},
+        {"prompt": "do the task", "release": RELEASE, "model_name": MODEL_NAME},
         {"result": {"success": True, "dates": [], "origin": "SFO"}},
         {"result": {"exit_code": 0, "output": "unset", "truncated": False}},
     ]
@@ -170,6 +188,7 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
         RELEASE,
     )
     assert trace["started_at"] <= trace["finished_at"]
+    assert (trace["provider"], trace["model"]) == ("openrouter", MODEL)
     assert trace["actions"] == [
         {"action_id": "1", "name": "search_dates", "status": "completed"},
         {"action_id": "2", "name": "bash", "status": "completed"},

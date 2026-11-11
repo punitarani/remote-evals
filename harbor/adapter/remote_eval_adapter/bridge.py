@@ -33,6 +33,7 @@ class Settings:
     token: str = field(repr=False)
     release: str
     metadata_path: Path
+    model_name: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -64,7 +65,13 @@ class Settings:
         metadata_path = Path(
             os.getenv("REMOTE_EVAL_METADATA_PATH", "/logs/artifacts/remote-eval.json")
         )
-        return cls(url.rstrip("/"), token, release, metadata_path)
+        return cls(
+            url.rstrip("/"),
+            token,
+            release,
+            metadata_path,
+            os.getenv("HARBOR_ACP_REQUESTED_MODEL") or None,
+        )
 
 
 @dataclass
@@ -172,14 +179,21 @@ class Bridge:
     ) -> str:
         path = self.settings.metadata_path
         self.trace.write(path)
-        response = await self._post(
-            "/start", {"prompt": prompt, "release": self.settings.release}
-        )
+        start = {"prompt": prompt, "release": self.settings.release}
+        if self.settings.model_name is not None:
+            start["model_name"] = self.settings.model_name
+        response = await self._post("/start", start)
         for field_name in ("model", "provider", "mode"):
             value = response.get(field_name)
             if isinstance(value, str):
                 setattr(self.trace, field_name, value)
         self.trace.write(path)
+        if self.settings.model_name is not None and self.settings.model_name != (
+            f"{self.trace.provider}/{self.trace.model}"
+        ):
+            raise BridgeError(
+                "endpoint_model", "Staging did not confirm the requested model."
+            )
 
         completed: dict[str, tuple[ToolAction, JsonObject]] = {}
         for _ in range(33):

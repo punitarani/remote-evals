@@ -77,6 +77,7 @@ class StartRequest(BaseModel):
 
     prompt: str = Field(min_length=1, max_length=16_000)
     release: str = Field(pattern=r"^[0-9a-f]{40}$")
+    model_name: str | None = Field(default=None, max_length=256)
 
 
 class ResultRequest(BaseModel):
@@ -253,6 +254,11 @@ def create_app(
         body = await read_request(request, StartRequest)
         if body.release != settings.release:
             raise HTTPException(409, "Staging release does not match this trial.")
+        if body.model_name is not None and (
+            settings.mode != "model"
+            or body.model_name != f"openrouter/{settings.model}"
+        ):
+            raise HTTPException(409, "Staging model does not match this trial.")
         key = str(trial_id)
         if session := get_session(key):
             if body.prompt != session.prompt:
