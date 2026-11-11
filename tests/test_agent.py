@@ -1,8 +1,37 @@
 import asyncio
 from pathlib import Path
 
+import httpx
+import pytest
+
 from agent.harness import run_agent
+from agent.model import DEFAULT_MODEL, InferenceError, OpenRouter
 from agent.tools import DirectToolExecutor
+
+
+@pytest.mark.parametrize(
+    "choice",
+    [
+        {
+            "finish_reason": "length",
+            "message": {"role": "assistant", "content": "Partial"},
+        },
+        {
+            "finish_reason": "tool_calls",
+            "message": {"role": "assistant", "tool_calls": [{}]},
+        },
+    ],
+)
+def test_unusable_model_response_is_an_inference_error(choice) -> None:
+    async def check() -> None:
+        transport = httpx.MockTransport(
+            lambda _: httpx.Response(200, json={"choices": [choice]})
+        )
+        async with httpx.AsyncClient(transport=transport) as client:
+            with pytest.raises(InferenceError):
+                await OpenRouter(client, "test-key", DEFAULT_MODEL)([], [])
+
+    asyncio.run(check())
 
 
 def test_direct_agent_writes_in_its_workspace(tmp_path: Path) -> None:

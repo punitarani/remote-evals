@@ -1,12 +1,44 @@
 import asyncio
+import json
+import shlex
 from uuid import uuid4
 
 import httpx
+import pytest
 
 from agent.service import Settings, create_app
+from agent.tools import DirectToolExecutor
 
 RELEASE = "a" * 40
 HEADERS = {"Authorization": "Bearer bridge-token"}
+
+
+@pytest.mark.parametrize(
+    ("headers", "status", "chunks_read"), [({}, 401, 0), (HEADERS, 413, 1)]
+)
+def test_bridge_rejects_untrusted_request_bodies(headers, status, chunks_read) -> None:
+    async def check() -> None:
+        reads = 0
+
+        async def body():
+            nonlocal reads
+            for _ in range(2):
+                reads += 1
+                yield b" " * 520_000
+
+        app = create_app(Settings(RELEASE, "bridge-token", mode="scripted"))
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as http:
+            response = await http.post(
+                f"/v1/evals/{uuid4()}/start",
+                headers={**headers, "Content-Type": "application/json"},
+                content=body(),
+            )
+        assert response.status_code == status
+        assert reads == chunks_read
+
+    asyncio.run(check())
 
 
 def test_replayed_start_and_result_return_the_original_reply() -> None:
@@ -79,11 +111,6 @@ def test_completed_sessions_expire_on_result_replay(monkeypatch) -> None:
 
 
 def test_model_sessions_use_independent_workspaces(tmp_path) -> None:
-    import json
-    import shlex
-
-    from agent.tools import DirectToolExecutor
-
     def complete(request: httpx.Request) -> httpx.Response:
         data = json.loads(request.content)
         messages = data["messages"]

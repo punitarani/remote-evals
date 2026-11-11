@@ -49,6 +49,7 @@ class TrialTools:
             }
 
         terminal_id = None
+        exited = False
         try:
             async with asyncio.timeout(TOOL_TIMEOUT):
                 terminal = await self.client.create_terminal(
@@ -69,6 +70,7 @@ class TrialTools:
                 status = await self.client.wait_for_terminal_exit(
                     session_id=self.session_id, terminal_id=terminal_id
                 )
+                exited = True
                 output = await self.client.terminal_output(
                     session_id=self.session_id, terminal_id=terminal_id
                 )
@@ -80,6 +82,12 @@ class TrialTools:
             ) from None
         finally:
             if terminal_id is not None:
+                if not exited:
+                    with suppress(ConnectionError, RequestError, TimeoutError):
+                        async with asyncio.timeout(3):
+                            await self.client.kill_terminal(
+                                session_id=self.session_id, terminal_id=terminal_id
+                            )
                 with suppress(ConnectionError, RequestError, TimeoutError):
                     async with asyncio.timeout(3):
                         await self.client.release_terminal(

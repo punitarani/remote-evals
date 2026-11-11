@@ -108,6 +108,29 @@ def test_classifies_low_score_and_infrastructure_separately():
     assert run_eval.trial_outcome(verifier_error, None, RELEASE) == ("verifier", None)
 
 
+def test_canceled_adapter_trace_still_reports_an_outcome():
+    trace = {"status": "cancelled", "error_code": None}
+    assert run_eval.trial_outcome({}, trace, RELEASE) == ("canceled", None)
+
+
+def test_job_status_uses_stdout_when_harbor_warns_on_stderr(monkeypatch):
+    status = {
+        "status": "completed",
+        "completed": 1,
+        "total": 1,
+        "failed": 0,
+        "canceled": 0,
+    }
+
+    def run(*args, **kwargs):
+        return run_eval.subprocess.CompletedProcess(
+            args, 0, stdout=json.dumps(status), stderr="A Harbor CLI warning\n"
+        )
+
+    monkeypatch.setattr(run_eval.subprocess, "run", run)
+    assert run_eval.wait_for_job("job-id", {}) == status
+
+
 def test_summary_reads_harbors_archive_layout_and_retains_provenance(tmp_path):
     trial = tmp_path / "cheapest-nonstop__trial"
     trace = trial / "artifacts/logs/artifacts/remote-eval.json"
@@ -135,6 +158,11 @@ def test_summary_reads_harbors_archive_layout_and_retains_provenance(tmp_path):
     assert report["fixture_revisions"] == revisions
     assert report["trials"][0]["id"] == "trial-id"
     assert report["trials"][0]["task_ref"] == "sha256:task-digest"
+
+    trace.write_text('{"status":')
+    assert not run_eval.summarize("job-id", tmp_path, RELEASE, status, revisions)
+    report = json.loads((tmp_path / "eval-summary.json").read_text())
+    assert report["trials"][0]["outcome"] == "bridge trace invalid"
 
     trace.unlink()
     assert not run_eval.summarize("job-id", tmp_path, RELEASE, status, revisions)

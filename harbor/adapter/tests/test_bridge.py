@@ -4,11 +4,39 @@ from pathlib import Path
 
 import httpx
 import pytest
+from acp.schema import CreateTerminalResponse
 
-from remote_eval_adapter.bridge import Bridge, BridgeError, Settings, Trace
+from remote_eval_adapter.bridge import Bridge, BridgeError, Settings, ToolAction, Trace
+from remote_eval_adapter.tools import TrialTools
 
 RELEASE = "1" * 40
 TRIAL_ID = "trial-id"
+
+
+def test_timed_out_terminal_is_stopped_before_release(monkeypatch, tmp_path):
+    monkeypatch.setattr("remote_eval_adapter.tools.TOOL_TIMEOUT", 0.01)
+    cleanup = []
+
+    class TerminalClient:
+        async def create_terminal(self, **kwargs):
+            return CreateTerminalResponse(terminal_id="terminal-1")
+
+        async def wait_for_terminal_exit(self, **kwargs):
+            await asyncio.Event().wait()
+
+        async def kill_terminal(self, **kwargs):
+            cleanup.append(("kill", kwargs["terminal_id"]))
+
+        async def release_terminal(self, **kwargs):
+            cleanup.append(("release", kwargs["terminal_id"]))
+
+    async def check():
+        tools = TrialTools(TerminalClient(), TRIAL_ID, tmp_path, None)
+        with pytest.raises(BridgeError, match="timed out"):
+            await tools.execute(ToolAction("action-1", "bash", {"command": "sleep 1"}))
+
+    asyncio.run(check())
+    assert cleanup == [("kill", "terminal-1"), ("release", "terminal-1")]
 
 
 def tool(trial_id=TRIAL_ID, command="echo hi"):

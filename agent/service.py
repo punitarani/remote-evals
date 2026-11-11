@@ -13,8 +13,9 @@ from uuid import UUID
 
 import httpx
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from starlette.requests import ClientDisconnect
 
 from agent.harness import ToolBudgetExceeded, run_agent
 from agent.model import DEFAULT_MODEL, InferenceError, OpenRouter
@@ -24,6 +25,8 @@ logger = logging.getLogger(__name__)
 RUN_TIMEOUT = 180
 REPLAY_TTL = 300
 MAX_SESSIONS = 64
+MAX_RESULT_BYTES = 512_000
+MAX_REQUEST_BYTES = MAX_RESULT_BYTES + 4096
 
 Payload = dict[str, Any]
 
@@ -82,6 +85,21 @@ class ResultRequest(BaseModel):
     result: Payload
 
 
+async def read_request[Body: BaseModel](request: Request, schema: type[Body]) -> Body:
+    body = bytearray()
+    try:
+        async for chunk in request.stream():
+            if len(body) + len(chunk) > MAX_REQUEST_BYTES:
+                raise HTTPException(413, "Request body is too large.")
+            body.extend(chunk)
+    except ClientDisconnect:
+        raise HTTPException(400, "Request body was interrupted.") from None
+    try:
+        return schema.model_validate_json(body)
+    except ValidationError:
+        raise HTTPException(422, "Invalid request body.") from None
+
+
 @dataclass
 class Action:
     id: str
@@ -126,7 +144,7 @@ class TrialExecutor:
         encoded_result = json.dumps(
             result, sort_keys=True, separators=(",", ":")
         ).encode()
-        if len(encoded_result) > 512_000:
+        if len(encoded_result) > MAX_RESULT_BYTES:
             raise HTTPException(413, "Tool result is too large.")
         fingerprint = hashlib.sha256(encoded_result).hexdigest()
         if receipt := self.receipts.get(action_id):
@@ -231,32 +249,34 @@ def create_app(
         return settings.public()
 
     @app.post("/v1/evals/{trial_id}/start", dependencies=[Depends(authorize)])
-    async def start(trial_id: UUID, request: StartRequest) -> Payload:
-        if request.release != settings.release:
+    async def start(trial_id: UUID, request: Request) -> Payload:
+        body = await read_request(request, StartRequest)
+        if body.release != settings.release:
             raise HTTPException(409, "Staging release does not match this trial.")
         key = str(trial_id)
         if session := get_session(key):
-            if request.prompt != session.prompt:
+            if body.prompt != session.prompt:
                 raise HTTPException(409, "Conflicting start request for this trial.")
         else:
             if len(sessions) >= MAX_SESSIONS:
                 raise HTTPException(503, "Staging is at capacity.")
             executor = TrialExecutor(key, settings)
             task = asyncio.create_task(
-                run_session(executor, request.prompt, app.state.model)
+                run_session(executor, body.prompt, app.state.model)
             )
-            session = sessions[key] = Session(request.prompt, executor, task)
+            session = sessions[key] = Session(body.prompt, executor, task)
         return await asyncio.shield(session.executor.initial_response)
 
     @app.post(
         "/v1/evals/{trial_id}/actions/{action_id}/result",
         dependencies=[Depends(authorize)],
     )
-    async def result(trial_id: UUID, action_id: str, request: ResultRequest) -> Payload:
+    async def result(trial_id: UUID, action_id: str, request: Request) -> Payload:
+        body = await read_request(request, ResultRequest)
         session = get_session(str(trial_id))
         if session is None:
             raise HTTPException(404, "Staging has no session for this trial.")
-        return await session.executor.submit(action_id, request.result)
+        return await session.executor.submit(action_id, body.result)
 
     return app
 

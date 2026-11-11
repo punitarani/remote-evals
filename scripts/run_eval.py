@@ -183,7 +183,9 @@ def harbor(args, env, *, timeout=300):
     except subprocess.TimeoutExpired as exc:
         raise LaunchError(f"Harbor {args[0]} timed out") from exc
 
-    output = result.stdout + result.stderr
+    output = result.stdout
+    if result.returncode or "--json" not in args:
+        output += result.stderr
     for name, value in env.items():
         if value and (name.endswith("_KEY") or name.endswith("_TOKEN")):
             output = output.replace(value, "[redacted]")
@@ -298,10 +300,16 @@ def wait_for_job(job_id, env):
 def trial_outcome(result, trace, release):
     rewards = (result.get("verifier_result") or {}).get("rewards") or {}
     reward = rewards.get("reward")
-    error_type = (result.get("exception_info") or {}).get("exception_type", "").lower()
+    error_type = (
+        (result.get("exception_info") or {}).get("exception_type") or ""
+    ).lower()
     if trace is not None:
+        if trace.get("status") == "cancelled":
+            return "canceled", reward
         if trace.get("status") != "completed":
-            error = trace.get("error_code", "")
+            error = str(trace.get("error_code") or "")
+            if error == "invalid_trace":
+                return "bridge trace invalid", reward
             if error == "inference":
                 return "inference", reward
             if error == "endpoint" or error.startswith("endpoint_"):
@@ -335,12 +343,23 @@ def read_json(path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def read_bridge_trace(path):
+    if not path.is_file():
+        return None
+    try:
+        trace = read_json(path)
+    except OSError, ValueError:
+        trace = None
+    if not isinstance(trace, dict):
+        return {"status": "error", "error_code": "invalid_trace"}
+    return trace
+
+
 def read_trials(job_dir, release):
     trials = []
     for result_path in sorted(job_dir.glob("*/result.json")):
         result = read_json(result_path)
-        trace_path = result_path.parent / TRACE
-        trace = read_json(trace_path) if trace_path.is_file() else None
+        trace = read_bridge_trace(result_path.parent / TRACE)
         outcome, reward = trial_outcome(result, trace, release)
         agent = result.get("agent_info") or {}
         model = agent.get("model_info") or {}
