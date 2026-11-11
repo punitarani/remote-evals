@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "remote-eval-adapter"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "agent-client-protocol==0.12.1",
+    "httpx==0.28.1",
+    "mcp==1.30.0",
+]
+
+[project.scripts]
+remote-eval-adapter = "remote_eval_adapter.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.15,<1"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP"]

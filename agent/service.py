@@ -60,7 +60,13 @@ class Settings:
 
     def public(self) -> dict[str, str]:
         model = self.model if self.mode == "model" else "scripted"
-        return {"release": self.release, "model": model, "mode": self.mode}
+        provider = "openrouter" if self.mode == "model" else "scripted"
+        return {
+            "release": self.release,
+            "model": model,
+            "provider": provider,
+            "mode": self.mode,
+        }
 
 
 class StartRequest(BaseModel):

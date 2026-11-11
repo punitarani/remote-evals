@@ -1,0 +1,472 @@
+"""Package a release, run it on Hosted Harbor, and summarize the trials."""
+
+import argparse
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import tomllib
+from datetime import datetime, timezone
+from pathlib import Path
+from urllib.parse import urlsplit
+from uuid import UUID, uuid4
+
+import httpx
+
+ROOT = Path(__file__).resolve().parents[1]
+MODEL = "openai/gpt-5.6-luna"
+REPOSITORY = "punitarani/remote-evals"
+HUB = "https://hub.harborframework.com"
+TRACE = Path("artifacts/logs/artifacts/remote-eval.json")
+
+
+class LaunchError(Exception):
+    pass
+
+
+def staging_origin(value):
+    try:
+        url = urlsplit(value)
+        if (
+            url.scheme == "https"
+            and url.hostname
+            and url.username is None
+            and url.port in (None, 443)
+            and url.path in ("", "/")
+            and not url.query
+            and not url.fragment
+        ):
+            return f"https://{url.netloc}"
+    except ValueError:
+        pass
+    raise LaunchError("endpoint: set STAGING_URL to the staging HTTPS origin")
+
+
+def validate_health(health, release, *, dry_run=False):
+    if not isinstance(health, dict) or health.get("release") != release:
+        raise LaunchError("endpoint: staging release differs from the requested commit")
+    if not dry_run and health.get("mode") != "model":
+        raise LaunchError(
+            "endpoint: switch the staging service to model mode for scoring"
+        )
+
+
+def check_staging(url, release, *, dry_run):
+    try:
+        health = httpx.get(f"{url}/healthz", timeout=15).raise_for_status().json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise LaunchError(
+            "endpoint: could not read staging /healthz over HTTPS"
+        ) from exc
+    validate_health(health, release, dry_run=dry_run)
+
+
+def job_config(target, codex_provider, release, url, tasks, job_name):
+    agents = []
+    secrets = {}
+    credential_mode = "direct"
+    if target in ("both", "codex"):
+        codex = {
+            "name": "codex",
+            "model_name": MODEL,
+            "kwargs": {"web_search": "disabled"},
+        }
+        if codex_provider == "openrouter":
+            codex.update(
+                model_name=f"openrouter/{MODEL}",
+                model_api_key_name="OPENROUTER_API_KEY",
+                model_api_format="openai_responses",
+                extra_allowed_hosts=["openrouter.ai"],
+                secrets=["OPENROUTER_API_KEY"],
+            )
+            codex["kwargs"]["config"] = {
+                "model_provider": "openrouter",
+                "model_providers": {
+                    "openrouter": {
+                        "name": "OpenRouter",
+                        "base_url": "https://openrouter.ai/api/v1",
+                        "wire_api": "responses",
+                        "env_key": "OPENROUTER_API_KEY",
+                    }
+                },
+            }
+            secrets["OPENROUTER_API_KEY"] = {"from_env": "CODEX_OPENROUTER_API_KEY"}
+        else:
+            credential_mode = "gateway"
+            codex["secrets"] = ["OPENAI_API_KEY"]
+            secrets["OPENAI_API_KEY"] = {"from_env": "CODEX_OPENAI_API_KEY"}
+        agents.append(codex)
+    if target in ("both", "remote"):
+        if url is None:
+            raise LaunchError("endpoint: STAGING_URL is required for the remote agent")
+        agents.append(
+            {
+                "name": "acp",
+                "source": {
+                    "type": "github",
+                    "repo": REPOSITORY,
+                    "ref": release,
+                    "path": "harbor/adapter",
+                    "manifest": "harbor-agent.json",
+                },
+                "env": {"STAGING_URL": url, "AGENT_RELEASE": release},
+                "extra_allowed_hosts": [urlsplit(url).hostname],
+                "secrets": ["BRIDGE_TOKEN"],
+            }
+        )
+        secrets["BRIDGE_TOKEN"] = {"from_env": "BRIDGE_TOKEN"}
+    return {
+        "job_name": job_name,
+        "credential_mode": credential_mode,
+        "n_attempts": 1,
+        "n_concurrent_trials": 4,
+        "agents": agents,
+        "tasks": [{"path": str(task)} for task in tasks],
+        "job_secrets": secrets,
+    }
+
+
+def harbor_environment(config):
+    # Keep the staging inference key outside the Harbor CLI process. Only these
+    # source names are resolved by the per-agent job secret references.
+    env = {
+        name: os.environ[name]
+        for name in (
+            "PATH",
+            "HOME",
+            "TMPDIR",
+            "SSL_CERT_FILE",
+            "SSL_CERT_DIR",
+            "HARBOR_API_KEY",
+        )
+        if name in os.environ
+    }
+    for secret in config["job_secrets"].values():
+        name = secret["from_env"]
+        value = os.environ.get(name, "").strip()
+        if not value:
+            raise LaunchError(
+                f"credentials: set {name} in the local environment or staging secrets"
+            )
+        env[name] = value
+    env.update(NO_COLOR="1", COLUMNS="160")
+    return env
+
+
+def harbor(args, env, *, timeout=300):
+    try:
+        result = subprocess.run(
+            ["harbor", *args],
+            env=env,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise LaunchError(
+            "Harbor CLI is missing; run the launcher with uv run"
+        ) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise LaunchError(f"Harbor {args[0]} timed out") from exc
+
+    output = result.stdout + result.stderr
+    for name, value in env.items():
+        if value and (name.endswith("_KEY") or name.endswith("_TOKEN")):
+            output = output.replace(value, "[redacted]")
+    if result.returncode:
+        raise LaunchError(
+            f"Harbor {args[0]} exited with code {result.returncode}\n{output.strip()}"
+        )
+    return output
+
+
+def checked_out_release(requested):
+    try:
+        release = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+    except subprocess.CalledProcessError as exc:
+        raise LaunchError("commit the release before running a hosted eval") from exc
+    if requested and requested != release:
+        raise LaunchError("check out the full requested release SHA before launching")
+    return release
+
+
+def package_tasks(release, suite, scratch):
+    # Read inputs directly from Git so an edited or untracked fixture cannot
+    # produce different task packages under the same release SHA.
+    try:
+        archive = subprocess.check_output(
+            ["git", "archive", release, "harbor/task", "pyproject.toml", "uv.lock"],
+            cwd=ROOT,
+        )
+        with tarfile.open(fileobj=io.BytesIO(archive)) as tree:
+            tree.extractall(scratch, filter="data")
+        target = scratch / "tasks"
+        subprocess.run(
+            [sys.executable, "harbor/task/package.py", str(target), "--suite", suite],
+            cwd=scratch,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        raise LaunchError("task packaging failed for the requested release") from exc
+    tasks = sorted(path.parent for path in target.glob("*/task.toml"))
+    if len(tasks) != (1 if suite == "smoke" else 2):
+        raise LaunchError("task packager produced an unexpected number of tasks")
+    return tasks
+
+
+def submit(config, scratch, env, *, dry_run):
+    config_path = scratch / "launch.json"
+    config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    flags = ["--dry-run"] if dry_run else ["--yes"]
+    output = harbor(["run", "--launch", "-c", str(config_path), *flags], env)
+    print(output.strip(), flush=True)
+    if dry_run:
+        return None
+    match = re.search(r"Launched job ([0-9a-f-]{36})\b", output)
+    if match is None:
+        raise LaunchError(
+            "Harbor returned no job ID; check the Hub before retrying the launch"
+        )
+    return str(UUID(match[1]))
+
+
+def validate_adapter_source(config, scratch, env):
+    adapter = next(
+        (agent for agent in config["agents"] if agent["name"] == "acp"), None
+    )
+    if adapter is None:
+        return
+    # A local-task dry run stops before Hub source resolution. A registered
+    # task lets Harbor validate the private ACP repo without uploading or running anything.
+    source_check = {
+        **config,
+        "job_name": f"{config['job_name']}-source",
+        "agents": [adapter],
+        "tasks": [{"name": "harbor/hello-world", "ref": "latest"}],
+        "job_secrets": {"BRIDGE_TOKEN": config["job_secrets"]["BRIDGE_TOKEN"]},
+        "credential_mode": "direct",
+    }
+    submit(source_check, scratch, env, dry_run=True)
+
+
+def wait_for_job(job_id, env):
+    deadline = time.monotonic() + 30 * 60
+    previous = None
+    failed_polls = 0
+    while time.monotonic() < deadline:
+        try:
+            status = json.loads(
+                harbor(["hub", "job", "status", job_id, "--json"], env, timeout=30)
+            )
+        except LaunchError:
+            failed_polls += 1
+            if failed_polls == 3:
+                raise
+            time.sleep(10)
+            continue
+        failed_polls = 0
+        if status != previous:
+            print(
+                f"{status['status']} · {status['completed']}/{status['total']} completed · "
+                f"{status['failed']} failed · {status['canceled']} canceled",
+                flush=True,
+            )
+            previous = status
+        if status["status"] in {"completed", "failed", "canceled"}:
+            return status
+        time.sleep(10)
+    raise LaunchError("Harbor job still running after 30 minutes; follow the Hub link")
+
+
+def trial_outcome(result, trace, release):
+    rewards = (result.get("verifier_result") or {}).get("rewards") or {}
+    reward = rewards.get("reward")
+    error_type = (result.get("exception_info") or {}).get("exception_type", "").lower()
+    if trace is not None:
+        if trace.get("status") != "completed":
+            error = trace.get("error_code", "")
+            if error == "inference":
+                return "inference", reward
+            if error == "endpoint" or error.startswith("endpoint_"):
+                return "endpoint", reward
+            if error == "budget":
+                return "agent budget", reward
+            return "bridge", reward
+        if trace.get("release") != release or trace.get("mode") != "model":
+            return "endpoint", reward
+    if error_type:
+        if any(
+            word in error_type for word in ("verifier", "rewardfile", "rewardparse")
+        ):
+            return "verifier", reward
+        if any(
+            word in error_type
+            for word in ("inference", "credential", "api", "rate", "contextwindow")
+        ):
+            return "inference", reward
+        return "infrastructure", reward
+    if (result.get("config") or {}).get("agent", {}).get(
+        "name"
+    ) == "acp" and trace is None:
+        return "bridge evidence missing", reward
+    if reward is None:
+        return "verifier", reward
+    return ("pass" if reward == 1 else "task score"), reward
+
+
+def read_json(path):
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def read_trials(job_dir, release):
+    trials = []
+    for result_path in sorted(job_dir.glob("*/result.json")):
+        result = read_json(result_path)
+        trace_path = result_path.parent / TRACE
+        trace = read_json(trace_path) if trace_path.is_file() else None
+        outcome, reward = trial_outcome(result, trace, release)
+        agent = result.get("agent_info") or {}
+        model = agent.get("model_info") or {}
+        trials.append(
+            {
+                "id": result["id"],
+                "task": result["task_name"],
+                "task_ref": (result.get("task_id") or {}).get("ref"),
+                "task_checksum": result.get("task_checksum"),
+                "agent": agent.get("name"),
+                "agent_version": agent.get("version"),
+                "provider": (trace or {}).get("provider") or model.get("provider"),
+                "model": (trace or {}).get("model") or model.get("name"),
+                "reward": reward,
+                "outcome": outcome,
+                "error_type": (result.get("exception_info") or {}).get(
+                    "exception_type"
+                ),
+                "bridge": trace,
+            }
+        )
+    return trials
+
+
+def write_summary(message):
+    print(message, flush=True)
+    if path := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(path).open("a", encoding="utf-8") as summary:
+            summary.write(f"{message}\n\n")
+
+
+def summarize(job_id, job_dir, release, status, fixture_revisions):
+    trials = read_trials(job_dir, release)
+    summary = {
+        "job_id": job_id,
+        "viewer_url": f"{HUB}/jobs/{job_id}",
+        "release": release,
+        "fixture_revisions": fixture_revisions,
+        "status": status,
+        "trials": trials,
+    }
+    (job_dir / "eval-summary.json").write_text(
+        json.dumps(summary, indent=2) + "\n", encoding="utf-8"
+    )
+    rows = [
+        "| Task | Agent | Provider | Model | Trial ID | Reward | Outcome |",
+        "| --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    for trial in trials:
+        values = [
+            trial[key]
+            for key in ("task", "agent", "provider", "model", "id", "reward", "outcome")
+        ]
+        columns = [
+            str(value).replace("|", "\\|").replace("\n", " ")
+            if value is not None
+            else "—"
+            for value in values
+        ]
+        rows.append("| " + " | ".join(columns) + " |")
+    if len(trials) != status["total"]:
+        rows.append(
+            f"\nDownloaded results for {len(trials)} of {status['total']} trials."
+        )
+    write_summary("\n".join(rows))
+    return (
+        status["status"] == "completed"
+        and len(trials) == status["total"]
+        and all(trial["outcome"] == "pass" for trial in trials)
+    )
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--suite", choices=("smoke", "full"), default="smoke")
+    parser.add_argument("--target", choices=("both", "codex", "remote"), default="both")
+    parser.add_argument(
+        "--codex-provider", choices=("openrouter", "openai"), default="openrouter"
+    )
+    parser.add_argument("--release", help="Expected full commit SHA, defaults to HEAD")
+    parser.add_argument("--jobs-dir", type=Path, default=ROOT / "jobs")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Validate without queuing trials"
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        release = checked_out_release(args.release)
+        url = (
+            None
+            if args.target == "codex"
+            else staging_origin(os.environ.get("STAGING_URL", ""))
+        )
+        now = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        name = f"remote-evals-{args.suite}-{release[:8]}-{now}-{uuid4().hex[:6]}"
+        with tempfile.TemporaryDirectory(prefix="remote-evals-") as temporary:
+            scratch = Path(temporary)
+            tasks = package_tasks(release, args.suite, scratch)
+            fixture_revisions = {}
+            for task in tasks:
+                with (task / "task.toml").open("rb") as manifest:
+                    fixture_revisions[task.name] = tomllib.load(manifest)["metadata"][
+                        "fixture_sha256"
+                    ]
+            config = job_config(
+                args.target, args.codex_provider, release, url, tasks, name
+            )
+            env = harbor_environment(config)
+            if url:
+                check_staging(url, release, dry_run=args.dry_run)
+            validate_adapter_source(config, scratch, env)
+            job_id = submit(config, scratch, env, dry_run=args.dry_run)
+        if job_id is None:
+            return 0
+        write_summary(f"[Hosted Harbor job]({HUB}/jobs/{job_id}) · Release `{release}`")
+        status = wait_for_job(job_id, env)
+        destination = args.jobs_dir.resolve() / job_id
+        print(
+            harbor(
+                ["jobs", "download", job_id, "--output-dir", str(destination)], env
+            ).strip()
+        )
+        passed = summarize(
+            job_id, destination / name, release, status, fixture_revisions
+        )
+        return 0 if passed else 1
+    except (LaunchError, OSError, ValueError) as exc:
+        print(f"Eval failed: {exc}", file=sys.stderr)
+        if os.environ.get("GITHUB_STEP_SUMMARY"):
+            write_summary(
+                "The eval launcher failed. See the workflow log for the error."
+            )
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

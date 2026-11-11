@@ -1,0 +1,28 @@
+schema_version = "1.4"
+artifacts = [{ source = "/workspace/report.json", destination = "report.json" }]
+
+[metadata]
+fixture_sha256 = "FIXTURE_SHA256"
+
+[agent]
+timeout_sec = 240
+network_mode = "no-network"
+
+[environment]
+workdir = "/workspace"
+cpus = 2
+memory_mb = 4096
+storage_mb = 10240
+
+[[environment.mcp_servers]]
+name = "fli"
+transport = "stdio"
+command = "/opt/fixture/.venv/bin/python"
+args = ["/opt/fixture/fixture_mcp.py"]
+
+[verifier]
+timeout_sec = 30
+environment_mode = "separate"
+
+[verifier.environment]
+network_mode = "no-network"

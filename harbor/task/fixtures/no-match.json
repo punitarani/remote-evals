@@ -1,0 +1,17 @@
+{
+  "as_of": "2030-05-01T12:00:00+00:00",
+  "origin": "SFO",
+  "destination": "JFK",
+  "start_date": "2030-05-10",
+  "end_date": "2030-05-12",
+  "itineraries": [
+    {"date": "2030-05-10", "price_cents": 12900, "legs": [
+      {"from": "SFO", "to": "ORD", "flight": "UA420", "departure": "07:00", "arrival": "12:45", "minutes": 225},
+      {"from": "ORD", "to": "JFK", "flight": "UA610", "departure": "14:00", "arrival": "17:10", "minutes": 130}
+    ]},
+    {"date": "2030-05-11", "price_cents": 14900, "legs": [
+      {"from": "SFO", "to": "ORD", "flight": "UA422", "departure": "07:00", "arrival": "12:45", "minutes": 225},
+      {"from": "ORD", "to": "JFK", "flight": "UA614", "departure": "14:00", "arrival": "17:10", "minutes": 130}
+    ]}
+  ]
+}
