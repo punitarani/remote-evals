@@ -18,8 +18,9 @@ from uuid import UUID, uuid4
 
 import httpx
 
+from agent.model import DEFAULT_MODEL
+
 ROOT = Path(__file__).resolve().parents[1]
-MODEL = "openai/gpt-5.6-luna"
 REPOSITORY = "punitarani/remote-evals"
 HUB = "https://hub.harborframework.com"
 TRACE = Path("artifacts/logs/artifacts/remote-eval.json")
@@ -66,19 +67,20 @@ def check_staging(url, release, *, dry_run):
     validate_health(health, release, dry_run=dry_run)
 
 
-def job_config(target, codex_provider, release, url, tasks, job_name):
+def job_config(
+    target, codex_provider, release, url, tasks, job_name, *, codex_model=None
+):
     agents = []
     secrets = {}
     credential_mode = "direct"
     if target in ("both", "codex"):
         codex = {
             "name": "codex",
-            "model_name": MODEL,
             "kwargs": {"web_search": "disabled"},
         }
         if codex_provider == "openrouter":
             codex.update(
-                model_name=f"openrouter/{MODEL}",
+                model_name=f"openrouter/{DEFAULT_MODEL}",
                 model_api_key_name="OPENROUTER_API_KEY",
                 model_api_format="openai_responses",
                 extra_allowed_hosts=["openrouter.ai"],
@@ -97,7 +99,12 @@ def job_config(target, codex_provider, release, url, tasks, job_name):
             }
             secrets["OPENROUTER_API_KEY"] = {"from_env": "CODEX_OPENROUTER_API_KEY"}
         else:
+            if not codex_model or not codex_model.startswith("openai/"):
+                raise LaunchError(
+                    "Choose an openai/ model with --codex-model for the OpenAI gateway."
+                )
             credential_mode = "gateway"
+            codex["model_name"] = codex_model
             codex["secrets"] = ["OPENAI_API_KEY"]
             secrets["OPENAI_API_KEY"] = {"from_env": "CODEX_OPENAI_API_KEY"}
         agents.append(codex)
@@ -413,6 +420,11 @@ def main(argv=None):
     parser.add_argument(
         "--codex-provider", choices=("openrouter", "openai"), default="openrouter"
     )
+    parser.add_argument(
+        "--codex-model",
+        default=os.getenv("CODEX_MODEL"),
+        help="Explicit openai/ model for the OpenAI gateway",
+    )
     parser.add_argument("--release", help="Expected full commit SHA, defaults to HEAD")
     parser.add_argument("--jobs-dir", type=Path, default=ROOT / "jobs")
     parser.add_argument(
@@ -439,7 +451,13 @@ def main(argv=None):
                         "fixture_sha256"
                     ]
             config = job_config(
-                args.target, args.codex_provider, release, url, tasks, name
+                args.target,
+                args.codex_provider,
+                release,
+                url,
+                tasks,
+                name,
+                codex_model=args.codex_model,
             )
             env = harbor_environment(config)
             if url:

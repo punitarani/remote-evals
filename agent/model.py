@@ -2,7 +2,7 @@ from typing import Any
 
 import httpx
 
-DEFAULT_MODEL = "openai/gpt-5.6-luna"
+DEFAULT_MODEL = "deepseek/deepseek-v4.1-flash-1017"
 
 
 class InferenceError(RuntimeError):

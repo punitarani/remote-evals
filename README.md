@@ -93,7 +93,7 @@ Use `harbor auth login` locally or set `HARBOR_API_KEY` for CI.
 Run the native Codex control first.
 
 ```sh
-uv run --locked --env-file .env python scripts/run_eval.py --target codex
+uv run --locked --env-file .env python -m scripts.run_eval --target codex
 ```
 
 Start staging in one terminal and ngrok in another. Keep both running through
@@ -138,14 +138,14 @@ Restart staging in model mode for scoring. Launch both targets on the same
 pinned task packages.
 
 ```sh
-uv run --locked --env-file .env python scripts/run_eval.py --dry-run
-uv run --locked --env-file .env python scripts/run_eval.py --suite full
+uv run --locked --env-file .env python -m scripts.run_eval --dry-run
+uv run --locked --env-file .env python -m scripts.run_eval --suite full
 ```
 
-Use `--target remote` to debug the deployed agent by itself. Use
-`--codex-provider openai` with `CODEX_OPENAI_API_KEY` if you need Harbor's
-OpenAI gateway for the control. The default uses OpenRouter with
-`openai/gpt-5.6-luna` for both targets.
+Use `--target remote` to debug the deployed agent by itself. Both targets
+default to `deepseek/deepseek-v4.1-flash-1017` on OpenRouter. To use Harbor's
+OpenAI gateway for the control, set `CODEX_OPENAI_API_KEY` and pass
+`--codex-provider openai --codex-model` followed by an explicit `openai/` model ID.
 
 ## 5. Run it after a deploy
 

@@ -18,6 +18,10 @@ on:
         type: choice
         options: [openrouter, openai]
         default: openrouter
+      codex_model:
+        description: Explicit openai/ model when using the OpenAI gateway
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -66,7 +70,8 @@ jobs:
           CODEX_OPENROUTER_API_KEY: ${{ secrets.CODEX_OPENROUTER_API_KEY }}
           CODEX_OPENAI_API_KEY: ${{ secrets.CODEX_OPENAI_API_KEY }}
           CODEX_PROVIDER: ${{ inputs.codex_provider || vars.CODEX_PROVIDER || 'openrouter' }}
+          CODEX_MODEL: ${{ inputs.codex_model || vars.CODEX_MODEL }}
           EVAL_SUITE: ${{ inputs.suite || 'smoke' }}
         run: >-
-          uv run --locked python scripts/run_eval.py
+          uv run --locked python -m scripts.run_eval
           --release "$AGENT_RELEASE" --suite "$EVAL_SUITE" --codex-provider "$CODEX_PROVIDER"

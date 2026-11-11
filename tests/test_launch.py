@@ -21,7 +21,7 @@ def test_hosted_configuration_routes_each_secret_only_to_its_agent():
         "BRIDGE_TOKEN": {"from_env": "BRIDGE_TOKEN"},
     }
     assert codex["secrets"] == ["OPENROUTER_API_KEY"]
-    assert codex["model_name"] == "openrouter/openai/gpt-5.6-luna"
+    assert codex["model_name"] == "openrouter/deepseek/deepseek-v4.1-flash-1017"
     assert codex["extra_allowed_hosts"] == ["openrouter.ai"]
     assert adapter["secrets"] == ["BRIDGE_TOKEN"]
     assert adapter["source"]["ref"] == RELEASE
@@ -29,15 +29,24 @@ def test_hosted_configuration_routes_each_secret_only_to_its_agent():
 
 
 def test_codex_fallback_uses_gateway_and_needs_no_staging_url():
+    with pytest.raises(run_eval.LaunchError, match="--codex-model"):
+        run_eval.job_config("codex", "openai", RELEASE, None, [Path("case")], "test")
+
     config = run_eval.job_config(
-        "codex", "openai", RELEASE, None, [Path("case")], "test"
+        "codex",
+        "openai",
+        RELEASE,
+        None,
+        [Path("case")],
+        "test",
+        codex_model="openai/example",
     )
 
     assert config["credential_mode"] == "gateway"
     assert config["job_secrets"] == {
         "OPENAI_API_KEY": {"from_env": "CODEX_OPENAI_API_KEY"}
     }
-    assert config["agents"][0]["model_name"] == "openai/gpt-5.6-luna"
+    assert config["agents"][0]["model_name"] == "openai/example"
 
 
 def test_private_source_preflight_uses_registered_dataset(tmp_path, monkeypatch):
