@@ -355,12 +355,39 @@ def read_bridge_trace(path):
     return trace
 
 
+def trajectory_issue(path, trace):
+    try:
+        trajectory = read_json(path)
+        if trajectory["session_id"] != trace["trial_id"]:
+            return "trajectory session mismatch"
+        calls = {}
+        observed = set()
+        for step in trajectory["steps"]:
+            for call in step.get("tool_calls") or []:
+                calls[call["tool_call_id"]] = call["function_name"]
+            for result in (step.get("observation") or {}).get("results") or []:
+                if result.get("content"):
+                    observed.add(result["source_call_id"])
+        for action in trace["actions"]:
+            action_id = action["action_id"]
+            if calls.get(action_id) != action["name"] or action_id not in observed:
+                return "trajectory tool trace incomplete"
+    except FileNotFoundError:
+        return "trajectory missing"
+    except AttributeError, KeyError, OSError, TypeError, ValueError:
+        return "trajectory invalid"
+    return None
+
+
 def read_trials(job_dir, release):
     trials = []
     for result_path in sorted(job_dir.glob("*/result.json")):
         result = read_json(result_path)
         trace = read_bridge_trace(result_path.parent / TRACE)
         outcome, reward = trial_outcome(result, trace, release)
+        if trace is not None and outcome in {"pass", "task score"}:
+            path = result_path.parent / "agent/trajectory.json"
+            outcome = trajectory_issue(path, trace) or outcome
         agent = result.get("agent_info") or {}
         model = agent.get("model_info") or {}
         trials.append(

@@ -136,17 +136,19 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
                 )
                 assert response.stop_reason == "end_turn"
                 assert [
-                    update.title
+                    (update.title, update.kind)
                     for update in client.updates
                     if update.session_update == "tool_call"
-                ] == ["search_dates", "bash"]
-                search_update = next(
-                    update
+                ] == [("search_dates", "other"), ("bash", "other")]
+                results = {
+                    update.tool_call_id: json.loads(update.content[0].content.text)
                     for update in client.updates
                     if update.session_update == "tool_call_update"
-                    and update.tool_call_id == "1"
-                )
-                assert json.loads(search_update.content[0].content.text)["dates"] == []
+                }
+                assert results == {
+                    "1": {"success": True, "dates": [], "origin": "SFO"},
+                    "2": {"exit_code": 0, "output": "unset", "truncated": False},
+                }
                 return session.session_id
 
         try:
@@ -167,6 +169,7 @@ def test_acp_session_runs_fli_and_bash_inside_client_workspace(monkeypatch, tmp_
         trial_id,
         RELEASE,
     )
+    assert trace["started_at"] <= trace["finished_at"]
     assert trace["actions"] == [
         {"action_id": "1", "name": "search_dates", "status": "completed"},
         {"action_id": "2", "name": "bash", "status": "completed"},

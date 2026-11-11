@@ -165,11 +165,24 @@ Endpoint, inference, bridge, and verifier failures appear as separate
 outcomes. To debug, check the verifier tests, run Codex, run the scripted
 bridge probe, then inspect the model-backed run.
 
-Open a remote trial's trajectory to follow the tool request and response.
-Compare its `remote-eval.json` with the downloaded `report.json` and the
-verifier's diagnostic. The launcher records the Git release, Harbor job and
-trial IDs, task checksum, model, and bridge session ID. Use the start and finish
-times from the two remote traces to check concurrent execution.
+While a remote trial runs, Harbor appends ACP updates to
+`/logs/agent/acp-events.jsonl` in the trial sandbox. The adapter checkpoints
+`/logs/artifacts/remote-eval.json` at session start and around each tool call.
+That file records the deployment, session, and action statuses. The ACP events
+carry the tool arguments and results.
+
+After the trial exits, Harbor converts those events to `agent/trajectory.json`
+for the Hub trajectory view. Open the trial to inspect named calls such as
+`search_flights` and `bash` alongside their results. The launcher checks the
+trajectory's session ID and verifies that each bridge action has a named call
+and linked observation. It reports trajectory problems alongside the original
+reward. Harbor 0.25's [live trajectory streaming](https://docs.harborframework.com/jobs/stream)
+covers Claude Code and Codex in the local viewer. Use the completed trial's
+trajectory for custom ACP agents in Hosted Harbor.
+
+Compare `remote-eval.json` with the downloaded `report.json` and verifier
+diagnostic. Use the start and finish times from two remote traces to check
+concurrent execution.
 
 ## Verified hosted run
 

@@ -81,7 +81,8 @@ class Trace:
     finished_at: str | None = None
 
     def write(self, path: Path) -> None:
-        self.finished_at = datetime.now(UTC).isoformat()
+        if self.status != "running" and self.finished_at is None:
+            self.finished_at = datetime.now(UTC).isoformat()
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(f".{self.trial_id}.tmp")
         temporary.write_text(
@@ -165,6 +166,8 @@ class Bridge:
     async def run(
         self, prompt: str, execute: Callable[[ToolAction], Awaitable[JsonObject]]
     ) -> str:
+        path = self.settings.metadata_path
+        self.trace.write(path)
         response = await self._post(
             "/start", {"prompt": prompt, "release": self.settings.release}
         )
@@ -172,6 +175,7 @@ class Bridge:
             value = response.get(field_name)
             if isinstance(value, str):
                 setattr(self.trace, field_name, value)
+        self.trace.write(path)
 
         completed: dict[str, tuple[ToolAction, JsonObject]] = {}
         for _ in range(33):
@@ -206,11 +210,22 @@ class Bridge:
                 record = {
                     "action_id": action.action_id,
                     "name": action.name,
-                    "status": "failed",
+                    "status": "in_progress",
                 }
                 self.trace.actions.append(record)
-                result = await execute(action)
-                record["status"] = "completed"
+                self.trace.write(path)
+                try:
+                    result = await execute(action)
+                except asyncio.CancelledError:
+                    record["status"] = "cancelled"
+                    raise
+                except Exception:
+                    record["status"] = "failed"
+                    raise
+                else:
+                    record["status"] = "completed"
+                finally:
+                    self.trace.write(path)
                 completed[action.action_id] = (action, result)
             response = await self._post(
                 f"/actions/{action.action_id}/result", {"result": result}

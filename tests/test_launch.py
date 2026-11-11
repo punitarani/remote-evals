@@ -136,7 +136,15 @@ def test_summary_reads_harbors_archive_layout_and_retains_provenance(tmp_path):
     trace = trial / "artifacts/logs/artifacts/remote-eval.json"
     trace.parent.mkdir(parents=True)
     trace.write_text(
-        json.dumps({"release": RELEASE, "mode": "model", "status": "completed"})
+        json.dumps(
+            {
+                "trial_id": "session-id",
+                "release": RELEASE,
+                "mode": "model",
+                "status": "completed",
+                "actions": [{"action_id": "1", "name": "bash", "status": "completed"}],
+            }
+        )
     )
     (trial / "result.json").write_text(
         json.dumps(
@@ -151,6 +159,30 @@ def test_summary_reads_harbors_archive_layout_and_retains_provenance(tmp_path):
     )
     status = {"status": "completed", "total": 1}
     revisions = {"cheapest-nonstop": "fixture-digest"}
+    trajectory = trial / "agent/trajectory.json"
+    trajectory.parent.mkdir()
+    atif = {
+        "session_id": "session-id",
+        "steps": [
+            {
+                "tool_calls": [{"tool_call_id": "1", "function_name": "bash"}],
+                "observation": {"results": [{"source_call_id": "1", "content": "{}"}]},
+            }
+        ],
+    }
+    assert run_eval.read_trials(tmp_path, RELEASE)[0]["outcome"] == "trajectory missing"
+    trajectory.write_text(json.dumps({**atif, "session_id": "other-session"}))
+    assert (
+        run_eval.read_trials(tmp_path, RELEASE)[0]["outcome"]
+        == "trajectory session mismatch"
+    )
+    trajectory.write_text(
+        json.dumps({**atif, "steps": [{"tool_calls": atif["steps"][0]["tool_calls"]}]})
+    )
+    trial_result = run_eval.read_trials(tmp_path, RELEASE)[0]
+    assert trial_result["outcome"] == "trajectory tool trace incomplete"
+    assert trial_result["reward"] == 1
+    trajectory.write_text(json.dumps(atif))
 
     assert run_eval.summarize("job-id", tmp_path, RELEASE, status, revisions)
     report = json.loads((tmp_path / "eval-summary.json").read_text())

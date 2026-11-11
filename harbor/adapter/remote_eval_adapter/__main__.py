@@ -148,7 +148,7 @@ class RemoteFlightAgent:
                 update=start_tool_call(
                     tool_call_id=action.action_id,
                     title=action.name,
-                    kind="execute" if action.name == "bash" else "fetch",
+                    kind="other",  # Harbor 0.25 uses the title for this kind.
                     status="in_progress",
                     raw_input=action.arguments,
                 ),
@@ -161,7 +161,9 @@ class RemoteFlightAgent:
                     update=update_tool_call(
                         tool_call_id=action.action_id,
                         status="failed",
-                        raw_output={"error": exc.code},
+                        content=[
+                            tool_content(text_block(json.dumps({"error": exc.code})))
+                        ],
                     ),
                 )
                 raise
@@ -170,7 +172,6 @@ class RemoteFlightAgent:
                 update=update_tool_call(
                     tool_call_id=action.action_id,
                     status="completed",
-                    raw_output=result,
                     content=[
                         tool_content(text_block(json.dumps(result, ensure_ascii=False)))
                     ],
