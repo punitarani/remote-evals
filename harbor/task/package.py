@@ -1,4 +1,4 @@
-"""Materialize the emulated flight task or its live Harbor smoke test."""
+"""Build the flight examples as runnable Harbor tasks."""
 
 import argparse
 import json
@@ -9,8 +9,14 @@ from shutil import copyfile
 
 SOURCE = Path(__file__).resolve().parent
 ROOT = SOURCE.parents[1]
-SUITES = {"smoke": "cheapest-nonstop", "live-smoke": "live-smoke"}
+SUITES = {
+    "smoke": ("cheapest-nonstop",),
+    "budget": ("under-budget",),
+    "live-smoke": ("live-smoke",),
+    "showcase": ("cheapest-nonstop", "under-budget", "live-smoke"),
+}
 SNAPSHOT = SOURCE / "fixtures" / "sfo-jfk.json"
+BUDGET_CENTS = 15000
 
 
 def prepare_tasks(destination: Path, suite: str) -> None:
@@ -18,20 +24,24 @@ def prepare_tasks(destination: Path, suite: str) -> None:
     if any(destination.iterdir()):
         raise ValueError(f"Task destination must be empty: {destination}")
 
-    name = SUITES[suite]
-    task = destination / name
+    snapshot = SNAPSHOT.read_bytes()
+    for name in SUITES[suite]:
+        prepare_task(destination / name, snapshot)
+
+
+def prepare_task(task: Path, snapshot: bytes) -> None:
+    name = task.name
     environment = task / "environment"
     payload = environment / "payload"
     verifier = task / "tests"
     payload.mkdir(parents=True)
     verifier.mkdir()
 
-    snapshot = SNAPSHOT.read_bytes()
     fixture = json.loads(snapshot)
     scope = {
         key: fixture[key] for key in ("origin", "destination", "start_date", "end_date")
     }
-    if suite == "live-smoke":
+    if name == "live-smoke":
         start = datetime.now(UTC).date() + timedelta(days=21)
         scope.update(
             start_date=start.isoformat(),
@@ -51,6 +61,16 @@ def prepare_tasks(destination: Path, suite: str) -> None:
         (payload / "fixture.json").write_bytes(snapshot)
     (verifier / "fixture.json").write_bytes(verifier_data)
 
+    budget_rule = ""
+    if name == "under-budget":
+        (verifier / "budget-cents.txt").write_text(
+            f"{BUDGET_CENTS}\n", encoding="utf-8"
+        )
+        budget_rule = (
+            f"Your total fare limit is ${BUDGET_CENTS / 100:.2f} USD. "
+            "Confirm the cheapest available flight before applying the limit.\n\n"
+        )
+
     manifest = (SOURCE / "task.toml.in").read_text(encoding="utf-8")
     (task / "task.toml").write_text(
         manifest.replace("TASK_NAME", name)
@@ -60,6 +80,7 @@ def prepare_tasks(destination: Path, suite: str) -> None:
         encoding="utf-8",
     )
     instruction = (SOURCE / "instruction.md").read_text(encoding="utf-8")
+    instruction = instruction.replace("{{budget_rule}}", budget_rule)
     for key, value in scope.items():
         instruction = instruction.replace("{{" + key + "}}", value)
     (task / "instruction.md").write_text(instruction, encoding="utf-8")

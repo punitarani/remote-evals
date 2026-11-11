@@ -250,7 +250,7 @@ def package_tasks(release, suite, scratch):
     except subprocess.CalledProcessError as exc:
         raise LaunchError("task packaging failed for the requested release") from exc
     tasks = sorted(path.parent for path in target.glob("*/task.toml"))
-    if len(tasks) != 1:
+    if len(tasks) != (3 if suite == "showcase" else 1):
         raise LaunchError("task packager produced an unexpected number of tasks")
     return tasks
 
@@ -510,7 +510,11 @@ def summarize(job_id, job_dir, release, status, fixture_revisions):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--suite", choices=("smoke", "live-smoke"), default="smoke")
+    parser.add_argument(
+        "--suite",
+        choices=("smoke", "budget", "live-smoke", "showcase"),
+        default="smoke",
+    )
     parser.add_argument("--target", choices=("both", "codex", "remote"), default="both")
     parser.add_argument(
         "--codex-provider", choices=("openrouter", "openai"), default="openrouter"

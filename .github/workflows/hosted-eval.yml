@@ -11,7 +11,7 @@ on:
       suite:
         description: Flight tool mode
         type: choice
-        options: [smoke, live-smoke]
+        options: [smoke, budget, live-smoke, showcase]
         default: smoke
       codex_provider:
         description: Inference provider for the Codex control
@@ -72,7 +72,7 @@ jobs:
           CODEX_PROVIDER: ${{ inputs.codex_provider || vars.CODEX_PROVIDER || 'openrouter' }}
           CODEX_MODEL: ${{ inputs.codex_model || vars.CODEX_MODEL }}
           EVAL_SUITE: ${{ inputs.suite || 'smoke' }}
-          EVAL_TARGET: ${{ inputs.suite == 'live-smoke' && 'remote' || 'both' }}
+          EVAL_TARGET: ${{ (inputs.suite == 'live-smoke' || inputs.suite == 'showcase') && 'remote' || 'both' }}
         run: >-
           uv run --locked python -m scripts.run_eval
           --release "$AGENT_RELEASE" --suite "$EVAL_SUITE" --target "$EVAL_TARGET"

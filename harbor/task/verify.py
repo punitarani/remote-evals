@@ -9,7 +9,7 @@ from pathlib import Path
 MAX_REPORT_BYTES = 16_384
 
 
-def expected_report(fixture):
+def expected_report(fixture, budget_cents=None):
     origin, destination = fixture["origin"], fixture["destination"]
     price_cents, date, flight_number = min(
         (
@@ -19,6 +19,8 @@ def expected_report(fixture):
         )
         for row in fixture["itineraries"]
     )
+    if budget_cents is not None and price_cents > budget_cents:
+        return {"status": "no_match"}
     return {
         "status": "found",
         "origin": origin,
@@ -101,7 +103,9 @@ def main():
         }
         reward, diagnostic = grade(args.report, shape, live_scope=fixture)
     else:
-        reward, diagnostic = grade(args.report, expected_report(fixture))
+        budget_path = Path(__file__).with_name("budget-cents.txt")
+        budget_cents = int(budget_path.read_text()) if budget_path.exists() else None
+        reward, diagnostic = grade(args.report, expected_report(fixture, budget_cents))
     args.logs.mkdir(parents=True, exist_ok=True)
     (args.logs / "reward.txt").write_text(f"{reward}\n", encoding="utf-8")
     (args.logs / "diagnostic.txt").write_text(f"{diagnostic}\n", encoding="utf-8")

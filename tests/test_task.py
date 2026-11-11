@@ -18,7 +18,7 @@ TASK_SOURCE = ROOT / "harbor" / "task"
 @pytest.fixture(scope="module")
 def tasks(tmp_path_factory):
     destination = tmp_path_factory.mktemp("tasks")
-    for suite in ("smoke", "live-smoke"):
+    for suite in ("smoke", "live-smoke", "showcase"):
         subprocess.run(
             [
                 sys.executable,
@@ -63,6 +63,22 @@ def test_packaged_tasks_select_the_expected_mcp_and_network(tasks):
             assert "itineraries" not in json.loads(fixture)
 
 
+def test_showcase_packages_three_examples_with_one_snapshot(tasks):
+    showcase = tasks / "showcase"
+    assert {task.name for task in showcase.iterdir()} == {
+        "cheapest-nonstop",
+        "under-budget",
+        "live-smoke",
+    }
+    snapshot = (TASK_SOURCE / "fixtures" / "sfo-jfk.json").read_bytes()
+    for name in ("cheapest-nonstop", "under-budget"):
+        task = showcase / name
+        assert (task / "environment/payload/fixture.json").read_bytes() == snapshot
+        assert (task / "tests/fixture.json").read_bytes() == snapshot
+    assert "$150.00 USD" in (showcase / "under-budget/instruction.md").read_text()
+    assert not (showcase / "live-smoke/environment/payload/fixture.json").exists()
+
+
 FOUND = {
     "status": "found",
     "origin": "SFO",
@@ -98,6 +114,14 @@ def test_live_verifier_checks_contract_without_a_snapshot_price(tasks, tmp_path)
     verify(task, tmp_path, report, "1")
     verify(task, tmp_path, {**report, "departure_date": "2030-02-31"}, "0")
     verify(task, tmp_path, {"status": "no_match"}, "0")
+
+
+def test_budget_verifier_requires_no_match_when_even_the_cheapest_fare_is_over_budget(
+    tasks, tmp_path
+):
+    task = tasks / "showcase" / "under-budget"
+    verify(task, tmp_path, {"status": "no_match"}, "1")
+    verify(task, tmp_path, FOUND, "0")
 
 
 def verify(task, tmp_path, report, reward):
