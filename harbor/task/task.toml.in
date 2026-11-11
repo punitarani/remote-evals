@@ -1,6 +1,9 @@
 schema_version = "1.4"
 artifacts = [{ source = "/workspace/report.json", destination = "report.json" }]
 
+[task]
+name = "remote-evals/TASK_NAME"
+
 [metadata]
 fixture_sha256 = "FIXTURE_SHA256"
 

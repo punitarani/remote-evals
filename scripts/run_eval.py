@@ -251,7 +251,8 @@ def validate_adapter_source(config, scratch, env):
         **config,
         "job_name": f"{config['job_name']}-source",
         "agents": [adapter],
-        "tasks": [{"name": "harbor/hello-world", "ref": "latest"}],
+        "tasks": [],
+        "datasets": [{"name": "harbor/hello-world", "n_tasks": 1}],
         "job_secrets": {"BRIDGE_TOKEN": config["job_secrets"]["BRIDGE_TOKEN"]},
         "credential_mode": "direct",
     }

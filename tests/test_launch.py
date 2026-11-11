@@ -40,6 +40,22 @@ def test_codex_fallback_uses_gateway_and_needs_no_staging_url():
     assert config["agents"][0]["model_name"] == "openai/gpt-5.6-luna"
 
 
+def test_private_source_preflight_uses_registered_dataset(tmp_path, monkeypatch):
+    config = run_eval.job_config(
+        "both", "openrouter", RELEASE, URL, [Path("case")], "test"
+    )
+
+    def check_source(preflight, scratch, env, *, dry_run):
+        assert dry_run
+        assert preflight["tasks"] == []
+        assert preflight["datasets"] == [{"name": "harbor/hello-world", "n_tasks": 1}]
+        assert preflight["agents"] == [config["agents"][1]]
+        assert set(preflight["job_secrets"]) == {"BRIDGE_TOKEN"}
+
+    monkeypatch.setattr(run_eval, "submit", check_source)
+    run_eval.validate_adapter_source(config, tmp_path, {})
+
+
 def test_release_and_model_mode_are_checked_before_queueing():
     with pytest.raises(run_eval.LaunchError, match="release"):
         run_eval.validate_health({"release": "b" * 40, "mode": "model"}, RELEASE)

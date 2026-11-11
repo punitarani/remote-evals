@@ -26,7 +26,9 @@ def prepare_tasks(destination: Path, suite: str) -> None:
         fixture_digest = sha256(fixture.read_bytes()).hexdigest()
         manifest = (SOURCE / "task.toml.in").read_text(encoding="utf-8")
         (task / "task.toml").write_text(
-            manifest.replace("FIXTURE_SHA256", fixture_digest),
+            manifest.replace("TASK_NAME", name).replace(
+                "FIXTURE_SHA256", fixture_digest
+            ),
             encoding="utf-8",
         )
         copyfile(SOURCE / "instruction.md", task / "instruction.md")

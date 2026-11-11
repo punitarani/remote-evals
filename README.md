@@ -64,7 +64,8 @@ uv --directory harbor/adapter run --locked pytest -q
 
 task_dir=$(mktemp -d)
 uv run --locked python harbor/task/package.py "$task_dir" --suite full
-uv run --locked harbor task lint "$task_dir/cheapest-nonstop"
+uv run --locked harbor lint "$task_dir/cheapest-nonstop"
+uv run --locked harbor lint "$task_dir/no-match"
 ```
 
 The smoke case has a cheaper connection and tied nonstop fares. The second

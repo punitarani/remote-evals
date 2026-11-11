@@ -10,7 +10,7 @@ ENV UV_CONSTRAINT=/opt/harbor-constraints.txt
 
 WORKDIR /opt/fixture
 COPY pyproject.toml uv.lock ./
-RUN uv sync --locked --only-group fixture --no-install-project
+RUN uv sync --frozen --only-group fixture --no-install-project
 COPY fixture_mcp.py fixture.json ./
 
 WORKDIR /workspace
