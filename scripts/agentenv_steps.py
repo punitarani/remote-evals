@@ -34,9 +34,16 @@ FIXTURE_PYTHON = "/opt/fixture/.venv/bin/python"
 # byte so an oversized report still reaches the verifier as oversized.
 REPORT_READ_BYTES = 16_385
 CONTAINER_FLAGS = ("--cap-drop=ALL", "--security-opt=no-new-privileges")
-BASH_WRAPPER = """
-timeout --kill-after=2s "$1" /bin/bash -c "$2" 2>&1 | tail -c "$3"
-exit "${PIPESTATUS[0]}"
+BASH_WRAPPER = r"""
+output=$(mktemp) || exit 125
+trap 'rm -f -- "$output"' EXIT
+timeout --kill-after=2s "$1" /bin/bash -c '
+    /bin/bash -c "$1" 2>&1 | tail -c "$2"
+    exit "${PIPESTATUS[0]}"
+' bash "$2" "$3" > "$output"
+status=$?
+base64 < "$output" | tr -d '\n'
+exit "$status"
 """
 READ_REPORT = """
 set -o pipefail
@@ -104,6 +111,28 @@ async def build_image(sandbox, task):
     )
 
 
+async def collect_report(sandbox, artifacts):
+    code, output, _ = await docker(
+        sandbox,
+        "exec",
+        "-w",
+        "/workspace",
+        CONTAINER,
+        "bash",
+        "-c",
+        READ_REPORT,
+        "bash",
+        str(REPORT_READ_BYTES),
+    )
+    if code == 0:
+        # Daytona's command session appends a newline to stdout.
+        (artifacts / "report.json").write_bytes(
+            base64.b64decode(output.rstrip("\r\n"), validate=True)
+        )
+    elif code != 3:
+        raise RuntimeError(f"Could not read the trial report (exit {code}).")
+
+
 class FlightTools:
     def __init__(self, sandbox, manifest, trace):
         self.sandbox = sandbox
@@ -142,7 +171,7 @@ class FlightTools:
             command,
             str(BASH_OUTPUT_LIMIT + 1),
         )
-        output = output.encode()
+        output = base64.b64decode(output.rstrip("\r\n"), validate=True)
         return {
             "exit_code": code,
             "output": output[-BASH_OUTPUT_LIMIT:].decode(errors="replace"),
@@ -206,34 +235,24 @@ class RunFlightTask(TaskStep):
         try:
             sandbox = await provider.get_sandbox(deployed.sandbox_id)
             await build_image(sandbox, task)
-            async with (
-                httpx.AsyncClient(timeout=40) as client,
-                asyncio.timeout(RUN_TIMEOUT),
-            ):
-                await run_agent(
-                    (task / "instruction.md").read_text(encoding="utf-8"),
-                    OpenRouter(client, os.environ["OPENROUTER_API_KEY"], model),
-                    FlightTools(sandbox, manifest, trace),
-                )
-            code, output, _ = await docker(
-                sandbox,
-                "exec",
-                "-w",
-                "/workspace",
-                CONTAINER,
-                "bash",
-                "-c",
-                READ_REPORT,
-                "bash",
-                str(REPORT_READ_BYTES),
-            )
-            if code == 0:
-                # Daytona's command session appends a newline to stdout.
-                (artifacts / "report.json").write_bytes(
-                    base64.b64decode(output.rstrip("\r\n"), validate=True)
-                )
-            elif code != 3:
-                raise RuntimeError(f"Could not read the trial report (exit {code}).")
+            try:
+                async with (
+                    httpx.AsyncClient(timeout=40) as client,
+                    asyncio.timeout(RUN_TIMEOUT),
+                ):
+                    await run_agent(
+                        (task / "instruction.md").read_text(encoding="utf-8"),
+                        OpenRouter(client, os.environ["OPENROUTER_API_KEY"], model),
+                        FlightTools(sandbox, manifest, trace),
+                    )
+            except Exception:
+                # A completed Bash action may have written the report before inference failed.
+                try:
+                    await collect_report(sandbox, artifacts)
+                except Exception as exc:
+                    trace["report_capture_error"] = type(exc).__name__
+                raise
+            await collect_report(sandbox, artifacts)
             trace["status"] = "completed"
             context.record_model("solver", self.id, f"openrouter/{model}")
         finally:
