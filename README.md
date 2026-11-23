@@ -1,9 +1,39 @@
-# Remote evals with Harbor
+# Remote flight evals
 
 Can an AI agent find the cheapest nonstop flight, stick to a budget, and show
-where its answer came from? This tutorial runs those checks against a test
-deployment. [Harbor](https://docs.harborframework.com/) gives each trial a fresh
-workspace, records the agent’s actions, and grades its report separately.
+where its answer came from? Each trial gives the agent a fresh workspace, records
+its tool calls, and grades its report separately.
+
+## Run locally with AgentEnv and Daytona
+
+From the repo root, add `DAYTONA_API_KEY` and `OPENROUTER_API_KEY` to `.env`
+(see [.env.example](.env.example)). Set `AGENT_MODEL` to override the default
+OpenRouter model. The launcher uses the Daytona Cloud API by default and accepts
+`DAYTONA_API_URL` for a different endpoint.
+
+```sh
+uv run --project agentenv --locked --env-file .env \
+  python -m scripts.run_agentenv --suite smoke
+```
+
+The local [AgentEnv](https://www.agentenvframework.com/docs/getting-started)
+runner creates a Daytona sandbox per task, builds the task image there, and
+deletes the sandbox after the trial. The flight agent calls OpenRouter from
+your machine. Daytona runs Bash in a persistent workspace container and Fli
+in a separate container. Bash and fixture replay have networking disabled.
+Only live Fli needs outbound network access. The launcher opens no sandbox
+ports and requires only uv on your machine.
+
+The verifier grades the report locally using the same rules as the Harbor
+examples below. Find `eval-summary.json`, each `report.json`, the tool traces,
+and verifier diagnostics under `jobs/agentenv-*/`. The launcher exits nonzero
+if a trial fails, scores below 1, or leaves a sandbox running. Use
+`--suite showcase` for all three tasks or pick `--suite budget` or
+`--suite live-smoke` individually. The live verifier requires a matching
+itinerary, so an empty Fli response can fail the live trial. Add `--dry-run`
+to validate the bundle without creating Daytona resources.
+
+## Hosted Harbor example
 
 [View the public Harbor job](https://hub.harborframework.com/jobs/b3b9d703-ea26-40e5-b510-19ed640d7f76) · 3 of 3 trials passed.
 
@@ -47,7 +77,7 @@ time and rejects requests outside the captured scope. Identical supported
 requests return identical data, and identical reports earn identical scores.
 The model may still take different steps.
 
-## Run the examples
+## Run the examples on Hosted Harbor
 
 You’ll need a Harbor account, an OpenRouter API key, and a configured
 [ngrok](https://ngrok.com/docs/share-localhost/tunnels) CLI. uv manages Python 3.14
