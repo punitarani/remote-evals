@@ -1,0 +1,9 @@
+[sandbox.providers.daytona.config]
+api_key = "env:DAYTONA_API_KEY"
+api_url = "env:DAYTONA_API_URL"
+
+[task_steps]
+impls = [
+    "scripts.agentenv_steps:RunFlightTask",
+    "scripts.agentenv_steps:GradeFlightReport",
+]
