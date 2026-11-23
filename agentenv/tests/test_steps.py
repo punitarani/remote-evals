@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from agent.model import InferenceError
-from scripts.agentenv_steps import BASH_WRAPPER, RunFlightTask
+from agentenv.steps import BASH_WRAPPER, RunFlightTask
 
 
 class FlightStepTests(unittest.IsolatedAsyncioTestCase):
@@ -81,12 +81,12 @@ class FlightStepTests(unittest.IsolatedAsyncioTestCase):
                     {"REMOTE_EVAL_JOB_DIR": job_dir, "OPENROUTER_API_KEY": "test"},
                 ),
                 patch(
-                    "scripts.agentenv_steps.build_sandbox_provider",
+                    "agentenv.steps.build_sandbox_provider",
                     return_value=provider,
                 ),
-                patch("scripts.agentenv_steps.build_image", new_callable=AsyncMock),
+                patch("agentenv.steps.build_image", new_callable=AsyncMock),
                 patch(
-                    "scripts.agentenv_steps.run_agent",
+                    "agentenv.steps.run_agent",
                     new_callable=AsyncMock,
                     side_effect=InferenceError("Could not reach OpenRouter."),
                 ),

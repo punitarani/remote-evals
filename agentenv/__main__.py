@@ -7,9 +7,11 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from string import Template
 from uuid import uuid4
 
-ROOT = Path(__file__).resolve().parents[1]
+PROJECT = Path(__file__).resolve().parent
+ROOT = PROJECT.parent
 SUITES = ("smoke", "budget", "live-smoke", "showcase")
 
 
@@ -27,32 +29,10 @@ def build_bundle(job: Path, suite: str) -> Path:
     )
     bundle = job / "bundle"
     (bundle / "tasks").mkdir(parents=True)
+    template = Template((PROJECT / "tasks/flight.json.in").read_text(encoding="utf-8"))
     for task in sorted(tasks.iterdir()):
-        steps = [
-            {
-                "id": "sandbox",
-                "type": "deploy_sandbox",
-                "sandbox_name": "flight",
-                "sandbox_type": "daytona",
-                "sandbox_mode": "vm",
-                "memory_mb": 4096,
-                "ttl_seconds": 900,
-            },
-            {
-                "id": "flight",
-                "type": "run_flight_task",
-                "task_name": task.name,
-                "depends_on": ["sandbox"],
-            },
-            {
-                "id": "report",
-                "type": "grade_flight_report",
-                "task_name": task.name,
-                "depends_on": ["flight"],
-            },
-        ]
         (bundle / "tasks" / f"{task.name}.json").write_text(
-            json.dumps(steps, indent=2) + "\n", encoding="utf-8"
+            template.substitute(task_name=task.name), encoding="utf-8"
         )
     return bundle
 
@@ -80,7 +60,7 @@ def main() -> int:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     job = ROOT / "jobs" / f"agentenv-{timestamp}-{uuid4().hex[:8]}"
     os.environ["REMOTE_EVAL_JOB_DIR"] = str(job)
-    os.environ["AGENT_ENV_CONFIG"] = str(ROOT / ".agentenv/config.toml")
+    os.environ["AGENT_ENV_CONFIG"] = str(PROJECT / "config.toml")
     if not os.environ.get("DAYTONA_API_URL", "").strip():
         os.environ["DAYTONA_API_URL"] = "https://app.daytona.io/api"
 

@@ -1,0 +1,27 @@
+[
+  {
+    "id": "sandbox",
+    "type": "deploy_sandbox",
+    "sandbox_name": "flight",
+    "sandbox_type": "daytona",
+    "sandbox_mode": "vm",
+    "memory_mb": 4096,
+    "ttl_seconds": 900
+  },
+  {
+    "id": "flight",
+    "type": "run_flight_task",
+    "task_name": "$task_name",
+    "depends_on": [
+      "sandbox"
+    ]
+  },
+  {
+    "id": "report",
+    "type": "grade_flight_report",
+    "task_name": "$task_name",
+    "depends_on": [
+      "flight"
+    ]
+  }
+]

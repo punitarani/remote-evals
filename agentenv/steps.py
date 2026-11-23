@@ -85,8 +85,8 @@ async def build_image(sandbox, task):
             for path in sorted((task / "environment").iterdir()):
                 archive.add(path, arcname=path.name)
             archive.add(
-                Path(__file__).with_name("agentenv_fli.py"),
-                arcname="payload/agentenv_fli.py",
+                Path(__file__).with_name("fli_client.py"),
+                arcname="payload/fli_client.py",
             )
         await sandbox.write_host_file(
             archive_path.read_bytes(), "/tmp/flight-image.tar.gz"
@@ -190,7 +190,7 @@ class FlightTools:
             "--kill-after=2s",
             str(BASH_TIMEOUT),
             FIXTURE_PYTHON,
-            "/opt/fixture/agentenv_fli.py",
+            "/opt/fixture/fli_client.py",
             name,
             json.dumps(arguments),
             self.server["command"],

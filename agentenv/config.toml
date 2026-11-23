@@ -4,6 +4,6 @@ api_url = "env:DAYTONA_API_URL"
 
 [task_steps]
 impls = [
-    "scripts.agentenv_steps:RunFlightTask",
-    "scripts.agentenv_steps:GradeFlightReport",
+    "agentenv.steps:RunFlightTask",
+    "agentenv.steps:GradeFlightReport",
 ]

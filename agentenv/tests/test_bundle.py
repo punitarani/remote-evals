@@ -2,13 +2,12 @@ import asyncio
 import json
 import sys
 
-from scripts import run_agentenv
-from scripts.agentenv_fli import call_tool
+from agentenv.__main__ import build_bundle
+from agentenv.fli_client import call_tool
 
 
 def test_showcase_bundle_keeps_verifier_inputs_off_the_container(tmp_path):
-    run_agentenv.build_bundle(tmp_path, "showcase")
-    bundle = tmp_path / "bundle"
+    bundle = build_bundle(tmp_path, "showcase")
     tasks = tmp_path / "tasks"
 
     assert {path.stem for path in (bundle / "tasks").glob("*.json")} == {
@@ -16,14 +15,17 @@ def test_showcase_bundle_keeps_verifier_inputs_off_the_container(tmp_path):
         "under-budget",
         "live-smoke",
     }
-    steps = json.loads((bundle / "tasks" / "under-budget.json").read_text())
-    assert [step["type"] for step in steps] == [
-        "deploy_sandbox",
-        "run_flight_task",
-        "grade_flight_report",
-    ]
-    assert steps[0]["sandbox_type"] == "daytona"
-    assert steps[-1]["depends_on"] == [steps[1]["id"]]
+    for definition in (bundle / "tasks").glob("*.json"):
+        sandbox, flight, report = json.loads(definition.read_text())
+        assert [step["type"] for step in (sandbox, flight, report)] == [
+            "deploy_sandbox",
+            "run_flight_task",
+            "grade_flight_report",
+        ]
+        assert sandbox["sandbox_type"] == "daytona"
+        assert flight["depends_on"] == [sandbox["id"]]
+        assert report["depends_on"] == [flight["id"]]
+        assert flight["task_name"] == report["task_name"] == definition.stem
     budget = tasks / "under-budget"
     assert (budget / "tests" / "budget-cents.txt").read_text() == "15000\n"
     assert not (budget / "environment" / "payload" / "budget-cents.txt").exists()
@@ -33,7 +35,7 @@ def test_showcase_bundle_keeps_verifier_inputs_off_the_container(tmp_path):
 
 
 def test_trial_mcp_client_reads_structured_results_from_the_locked_fixture(tmp_path):
-    run_agentenv.build_bundle(tmp_path, "smoke")
+    build_bundle(tmp_path, "smoke")
     payload = tmp_path / "tasks" / "cheapest-nonstop" / "environment" / "payload"
     fixture = json.loads((payload / "fixture.json").read_text())
     result = asyncio.run(

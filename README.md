@@ -13,7 +13,7 @@ OpenRouter model. The launcher uses the Daytona Cloud API by default and accepts
 
 ```sh
 uv run --project agentenv --locked --env-file .env \
-  python -m scripts.run_agentenv --suite smoke
+  python -m agentenv --suite smoke
 ```
 
 The local [AgentEnv](https://www.agentenvframework.com/docs/getting-started)
@@ -32,6 +32,16 @@ if a trial fails, scores below 1, or leaves a sandbox running. Use
 `--suite live-smoke` individually. The live verifier requires a matching
 itinerary, so an empty Fli response can fail the live trial. Add `--dry-run`
 to validate the bundle without creating Daytona resources.
+
+The [task template](agentenv/tasks/flight.json.in), [steps](agentenv/steps.py),
+and [configuration](agentenv/config.toml) live in `agentenv/`. To review past
+runs in the local Explorer, start it from the repo root and open
+[Tasks](http://127.0.0.1:8234/tasks).
+
+```sh
+AGENT_ENV_CONFIG=agentenv/config.toml PYTHONPATH=. \
+  uv run --project agentenv --locked agent-env up --no-bootstrap
+```
 
 ## Hosted Harbor example
 
@@ -124,6 +134,7 @@ deployment runs `smoke`; the other suites are available by manual dispatch.
 
 ```sh
 uv run --locked --group fixture pytest -q
+uv run --project agentenv --locked python -m unittest discover -s agentenv/tests
 uv --directory harbor/adapter run --locked pytest -q
 uv run --locked ruff check .
 uv run --locked ruff format --check .
