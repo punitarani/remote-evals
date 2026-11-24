@@ -65,7 +65,7 @@ async def docker(sandbox, *args, timeout=45):
         code, output, error = await sandbox.exec_with_output("sudo", "docker", *args)
     if code < 0:
         raise RuntimeError(
-            f"Daytona lost the Docker {args[0]} command: {error.strip()}"
+            f"Sandbox lost the Docker {args[0]} command: {error.strip()}"
         )
     return code, output, error
 
@@ -125,7 +125,7 @@ async def collect_report(sandbox, artifacts):
         str(REPORT_READ_BYTES),
     )
     if code == 0:
-        # Daytona's command session appends a newline to stdout.
+        # The command transport can append a newline to stdout.
         (artifacts / "report.json").write_bytes(
             base64.b64decode(output.rstrip("\r\n"), validate=True)
         )

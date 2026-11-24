@@ -4,7 +4,7 @@ Can an AI agent find the cheapest nonstop flight, stick to a budget, and show
 where its answer came from? Each trial gives the agent a fresh workspace, records
 its tool calls, and grades its report separately.
 
-## Run locally with AgentEnv and Daytona
+## Run locally with AgentEnv
 
 From the repo root, add `DAYTONA_API_KEY` and `OPENROUTER_API_KEY` to `.env`
 (see [.env.example](.env.example)). Set `AGENT_MODEL` to override the default
@@ -16,13 +16,22 @@ uv run --project agentenv --locked --env-file .env \
   python -m agentenv --suite smoke
 ```
 
+For [Sailboxes](https://docs.sailresearch.com/sailboxes), add `SAIL_API_KEY` and
+`OPENROUTER_API_KEY` to `.env` and select `sail_vm`. Daytona is the default.
+
+```sh
+uv run --project agentenv --locked --extra sail --env-file .env \
+  python -m agentenv --sandbox sail_vm --suite smoke
+```
+
 The local [AgentEnv](https://www.agentenvframework.com/docs/getting-started)
-runner creates a Daytona sandbox per task, builds the task image there, and
+runner creates a sandbox per task, builds the task image there, and
 deletes the sandbox after the trial. The flight agent calls OpenRouter from
-your machine. Daytona runs Bash in a persistent workspace container and Fli
-in a separate container. Bash and fixture replay have networking disabled.
-Only live Fli needs outbound network access. The launcher opens no sandbox
-ports and requires only uv on your machine.
+your machine. The sandbox runs Bash in a persistent workspace container and Fli
+in a separate container. The image build fetches dependencies over the
+network. During the trial, Bash and fixture replay run with networking
+disabled, and live Fli can make outbound requests. The launcher opens no
+sandbox ports and requires only uv on your machine.
 
 The verifier grades the report locally using the same rules as the Harbor
 examples below. Find `eval-summary.json`, each `report.json`, the tool traces,
@@ -31,7 +40,7 @@ if a trial fails, scores below 1, or leaves a sandbox running. Use
 `--suite showcase` for all three tasks or pick `--suite budget` or
 `--suite live-smoke` individually. The live verifier requires a matching
 itinerary, so an empty Fli response can fail the live trial. Add `--dry-run`
-to validate the bundle without creating Daytona resources.
+to validate the bundle without provisioning a sandbox.
 
 The [task template](agentenv/tasks/flight.json.in), [steps](agentenv/steps.py),
 and [configuration](agentenv/config.toml) live in `agentenv/`. To review past

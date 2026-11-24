@@ -6,6 +6,16 @@ from agentenv.__main__ import build_bundle
 from agentenv.fli_client import call_tool
 
 
+def test_sailbox_bundle_uses_the_sail_vm_provider(tmp_path):
+    bundle = build_bundle(tmp_path, "showcase", sandbox="sail_vm")
+    definitions = list((bundle / "tasks").glob("*.json"))
+    assert len(definitions) == 3
+    for definition in definitions:
+        deploy, *_ = json.loads(definition.read_text())
+        assert deploy["sandbox_type"] == "sail_vm"
+        assert deploy["sandbox_mode"] == "vm"
+
+
 def test_showcase_bundle_keeps_verifier_inputs_off_the_container(tmp_path):
     bundle = build_bundle(tmp_path, "showcase")
     tasks = tmp_path / "tasks"

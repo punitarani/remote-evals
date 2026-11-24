@@ -1,10 +1,13 @@
 [project]
 name = "remote-evals-agentenv"
 version = "0.1.0"
-description = "Local AgentEnv flight evals backed by Daytona"
+description = "Local AgentEnv flight evals backed by Daytona or Sailboxes"
 requires-python = ">=3.14,<3.15"
 dependencies = [
     "agentenv-framework[daytona]==0.9.1617",
     "flights[mcp]==0.9.0",
     "httpx",
 ]
+
+[project.optional-dependencies]
+sail = ["agentenv-framework[sail]"]

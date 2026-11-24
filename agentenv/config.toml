@@ -2,6 +2,9 @@
 api_key = "env:DAYTONA_API_KEY"
 api_url = "env:DAYTONA_API_URL"
 
+[sandbox.providers.sail_vm.config]
+api_key = "env:SAIL_API_KEY"
+
 [task_steps]
 impls = [
     "agentenv.steps:RunFlightTask",

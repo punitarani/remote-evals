@@ -3,7 +3,7 @@
     "id": "sandbox",
     "type": "deploy_sandbox",
     "sandbox_name": "flight",
-    "sandbox_type": "daytona",
+    "sandbox_type": "$sandbox",
     "sandbox_mode": "vm",
     "memory_mb": 4096,
     "ttl_seconds": 900
